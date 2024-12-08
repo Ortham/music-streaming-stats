@@ -5,7 +5,8 @@ import csv
 from datetime import datetime, timedelta, timezone
 import json
 import os
-import pprint
+
+import psycopg
 
 bucket_duration_secs = 3600
 
@@ -35,7 +36,7 @@ def get_tracks(streams):
                 'track_name': stream['master_metadata_track_name'],
                 'artist_name': stream['master_metadata_album_artist_name'],
                 'album_name': stream['master_metadata_album_album_name'],
-                'duration_ms': 0,
+                'duration_ms': None,
                 'play_time_ms': 0,
                 'play_count': 0,
                 'complete_play_count': 0,
@@ -47,7 +48,7 @@ def get_tracks(streams):
         if stream['reason_end'] == 'trackdone':
             tracks_by_id[track_id]['complete_play_count'] += 1
 
-            if tracks_by_id[track_id]['duration_ms'] == 0:
+            if 'duration_ms' not in tracks_by_id[track_id]:
                 tracks_by_id[track_id]['duration_ms'] = stream['ms_played']
 
     tracks = list(tracks_by_id.values())
@@ -107,7 +108,6 @@ def get_artists(tracks_by_id):
     artists.sort(key=lambda a: a['play_count'], reverse=True)
 
     return artists
-
 
 def get_day_of_week(timestamp: datetime):
     week_days = {
@@ -293,42 +293,96 @@ def write_buckets_csv(output_path, buckets):
         for bucket in buckets:
             writer.writerow(bucket)
 
+def write_to_postgres(streams, postgres_host, postgres_sslmode, postgres_db, postgres_user, postgres_password):
+    with psycopg.connect(f"host={postgres_host} sslmode={postgres_sslmode} dbname={postgres_db} user={postgres_user} password={postgres_password}") as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                    CREATE TABLE IF NOT EXISTS spotify_streams (
+                        id serial PRIMARY KEY,
+                        timestamp TIMESTAMP NOT NULL,
+                        platform TEXT NOT NULL,
+                        ms_played INTEGER NOT NULL,
+                        conn_country TEXT NOT NULL,
+                        ip_addr TEXT NOT NULL,
+                        track_name TEXT,
+                        artist_name TEXT,
+                        album_name TEXT,
+                        track_uri TEXT,
+                        episode_name TEXT,
+                        episode_show_name TEXT,
+                        episode_uri TEXT,
+                        reason_start TEXT NOT NULL,
+                        reason_end TEXT NOT NULL,
+                        shuffle BOOLEAN NOT NULL,
+                        skipped BOOLEAN NOT NULL,
+                        offline BOOLEAN NOT NULL,
+                        offline_timestamp TIMESTAMP,
+                        incognito_mode BOOLEAN NOT NULL)
+                    """)
+
+            cur.execute("TRUNCATE TABLE spotify_streams")
+
+            for stream in streams:
+                if stream['spotify_track_uri'] is None:
+                    # It's probably a podcast episode
+                    continue
+
+                try:
+                    offline_timestamp = datetime.fromtimestamp(stream['offline_timestamp'] / 1000, timezone.utc) if stream['offline_timestamp'] else None
+                except BaseException as e:
+                    print('Offline timestamp is', stream['offline_timestamp'])
+                    raise e
+
+                cur.execute("INSERT INTO spotify_streams (timestamp, platform, ms_played, conn_country, ip_addr, track_name, artist_name, album_name, track_uri, reason_start, reason_end, shuffle, skipped, offline, offline_timestamp, incognito_mode) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (stream['ts'], stream['platform'], stream['ms_played'], stream['conn_country'], stream['ip_addr'], stream['master_metadata_track_name'], stream['master_metadata_album_artist_name'], stream['master_metadata_album_album_name'], stream['spotify_track_uri'], stream['reason_start'], stream['reason_end'], stream['shuffle'], stream['skipped'], stream['offline'], offline_timestamp, stream['incognito_mode']))
+
+        conn.commit()
+
 def main():
     parser = argparse.ArgumentParser(description='Supply the path to a directory of JSON files containing your Spotify extended streaming history.')
+    parser.add_argument('--output-path')
     parser.add_argument('-b', '--bucket-type', choices=['hour', 'hour-of-week'], default='hour')
+    parser.add_argument('--postgresql', action='store_const', const=True)
+    parser.add_argument('--postgresql-host', default='localhost')
+    parser.add_argument('--postgresql-sslmode', default='disable')
+    parser.add_argument('--postgresql-db', default='postgres')
+    parser.add_argument('--postgresql-user', default='postgres')
+    parser.add_argument('--postgresql-password', default='password')
     parser.add_argument('input_dir_path')
-    parser.add_argument('output_dir_path')
     args = parser.parse_args()
 
     streams = parse_input_json(args.input_dir_path)
 
-    tracks_by_id = get_tracks(streams)
+    if args.output_path:
+        tracks_by_id = get_tracks(streams)
 
-    albums = get_albums(tracks_by_id)
-    artists = get_artists(tracks_by_id)
+        albums = get_albums(tracks_by_id)
+        artists = get_artists(tracks_by_id)
 
-    get_bucket_key = get_hour_of_week_bucket_key if args.bucket_type == 'hour-of-week' else get_hour_bucket_key
-    buckets = get_buckets(streams, get_bucket_key)
+        get_bucket_key = get_hour_of_week_bucket_key if args.bucket_type == 'hour-of-week' else get_hour_bucket_key
+        buckets = get_buckets(streams, get_bucket_key)
 
-    stats = collect_stats(streams, len(tracks_by_id))
-    ip_addrs = get_ip_addrs(stats)
-    platforms = get_platforms(stats)
+        stats = collect_stats(streams, len(tracks_by_id))
+        ip_addrs = get_ip_addrs(stats)
+        platforms = get_platforms(stats)
 
-    write_json(os.path.join(args.output_dir_path, 'spotify_streams.json'), streams)
+        write_json(os.path.join(args.output_path, 'spotify_streams.json'), streams)
 
-    write_json(os.path.join(args.output_dir_path, 'spotify_stats.json'), stats)
+        write_json(os.path.join(args.output_path, 'spotify_stats.json'), stats)
 
-    write_csv(os.path.join(args.output_dir_path, 'spotify_ip_addrs.csv'), ip_addrs)
+        write_csv(os.path.join(args.output_path, 'spotify_ip_addrs.csv'), ip_addrs)
 
-    write_csv(os.path.join(args.output_dir_path, 'spotify_platforms.csv'), platforms)
+        write_csv(os.path.join(args.output_path, 'spotify_platforms.csv'), platforms)
 
-    write_csv(os.path.join(args.output_dir_path, 'spotify_tracks.csv'), tracks_by_id.values())
+        write_csv(os.path.join(args.output_path, 'spotify_tracks.csv'), tracks_by_id.values())
 
-    write_albums_csv(os.path.join(args.output_dir_path, 'spotify_albums.csv'), albums)
+        write_albums_csv(os.path.join(args.output_path, 'spotify_albums.csv'), albums)
 
-    write_artists_csv(os.path.join(args.output_dir_path, 'spotify_artists.csv'), artists)
+        write_artists_csv(os.path.join(args.output_path, 'spotify_artists.csv'), artists)
 
-    write_buckets_csv(os.path.join(args.output_dir_path, 'spotify_times.csv'), buckets)
+        write_buckets_csv(os.path.join(args.output_path, 'spotify_times.csv'), buckets)
+
+    if args.postgresql:
+        write_to_postgres(streams, args.postgresql_host, args.postgresql_sslmode, args.postgresql_db, args.postgresql_user, args.postgresql_password)
 
 if __name__ == "__main__":
     main()
