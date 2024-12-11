@@ -5,10 +5,17 @@ import csv
 from datetime import datetime, timedelta, timezone
 import json
 import os
+from time import sleep
 
 import psycopg
+import requests
 
 bucket_duration_secs = 3600
+max_tracks_per_request = 50
+
+def read_json(file_path):
+    with open(file_path, encoding='utf-8') as f:
+        return json.load(f)
 
 def parse_input_json(dir_path):
     streams = []
@@ -16,23 +23,91 @@ def parse_input_json(dir_path):
         filename = os.fsdecode(file)
         if filename.endswith('.json') and '_Audio_' in filename:
             file_path = os.path.join(dir_path, filename)
-            with open(file_path, encoding='utf-8') as f:
-                data = json.load(f)
-                streams.extend(data)
+            streams.extend(read_json(file_path))
 
     return streams
 
-def get_tracks(streams):
-    tracks_by_id = {}
+def get_spotify_access_token(spotify_client_id, spotify_client_secret):
+    url = 'https://accounts.spotify.com/api/token'
+    data = {
+        'grant_type': 'client_credentials',
+        'client_id': spotify_client_id,
+        'client_secret': spotify_client_secret
+    }
+    response = requests.post(url, data)
+    response.raise_for_status()
+
+    return response.json()['access_token']
+
+def get_track_ids(streams):
+    track_ids = set()
     for stream in streams:
-        track_id = stream['spotify_track_uri']
-        if track_id is None:
+        track_uri = stream['spotify_track_uri']
+        if track_uri:
+            track_id = track_uri.split(':')[-1]
+            track_ids.add(track_id)
+
+    return list(track_ids)
+
+def get_from_spotify(url, track_ids, spotify_access_token):
+    if len(track_ids) > max_tracks_per_request:
+        raise ValueError('Trying to get audio features for too many tracks at once')
+
+    params = {'ids': ','.join(track_ids)}
+    headers = {'Authorization': f'Bearer {spotify_access_token}'}
+
+    response = requests.get(url, params=params, headers=headers)
+
+    if response.status_code == 429 and response.headers['Retry-After']:
+        retry_after_secs = response.headers['Retry-After']
+        print(f'Hit Spotify API rate limit, retrying request after {retry_after_secs} seconds...')
+        sleep(retry_after_secs)
+        return get_from_spotify(url, track_ids, spotify_access_token)
+    else:
+        try:
+            response.raise_for_status()
+        except BaseException as e:
+            print(response.json())
+            raise e
+
+    return response.json()
+
+def get_tracks_metadata(track_ids, spotify_access_token):
+    # <https://developer.spotify.com/documentation/web-api/reference/get-several-tracks>
+    url = 'https://api.spotify.com/v1/tracks'
+
+    return get_from_spotify(url, track_ids, spotify_access_token)['tracks']
+
+def get_all_tracks_metadata(streams, spotify_access_token, output_file_path):
+    track_ids = get_track_ids(streams)
+
+    all_tracks_metadata = []
+    i = 0
+    while i < len(track_ids):
+        print(f'Getting metadata for tracks {i} to {i + max_tracks_per_request}...')
+        id_batch = track_ids[i:i + max_tracks_per_request] if i + max_tracks_per_request < len(track_ids) else track_ids[i:]
+        tracks_metadata = get_tracks_metadata(id_batch, spotify_access_token)
+
+        all_tracks_metadata.extend(tracks_metadata)
+        if output_file_path:
+            # Write after each request to avoid redoing requests if one fails.
+            write_json(output_file_path, all_tracks_metadata)
+
+        i += max_tracks_per_request
+
+    return all_tracks_metadata
+
+def get_tracks(streams):
+    tracks_by_uri = {}
+    for stream in streams:
+        track_uri = stream['spotify_track_uri']
+        if track_uri is None:
             # It's probably a podcast episode
             continue
 
-        if track_id not in tracks_by_id:
-            tracks_by_id[track_id] = {
-                'track_id': track_id,
+        if track_uri not in tracks_by_uri:
+            tracks_by_uri[track_uri] = {
+                'track_uri': track_uri,
                 'track_name': stream['master_metadata_track_name'],
                 'artist_name': stream['master_metadata_album_artist_name'],
                 'album_name': stream['master_metadata_album_album_name'],
@@ -42,23 +117,23 @@ def get_tracks(streams):
                 'complete_play_count': 0,
             }
 
-        tracks_by_id[track_id]['play_count'] += 1
-        tracks_by_id[track_id]['play_time_ms'] += stream['ms_played']
+        tracks_by_uri[track_uri]['play_count'] += 1
+        tracks_by_uri[track_uri]['play_time_ms'] += stream['ms_played']
 
         if stream['reason_end'] == 'trackdone':
-            tracks_by_id[track_id]['complete_play_count'] += 1
+            tracks_by_uri[track_uri]['complete_play_count'] += 1
 
-            if 'duration_ms' not in tracks_by_id[track_id]:
-                tracks_by_id[track_id]['duration_ms'] = stream['ms_played']
+            if 'duration_ms' not in tracks_by_uri[track_uri]:
+                tracks_by_uri[track_uri]['duration_ms'] = stream['ms_played']
 
-    tracks = list(tracks_by_id.values())
+    tracks = list(tracks_by_uri.values())
     tracks.sort(key=lambda t: t['play_count'], reverse=True)
 
-    return tracks_by_id
+    return tracks_by_uri
 
-def get_albums(tracks_by_id):
+def get_albums(tracks_by_uri):
     albums_by_name = {}
-    for track in tracks_by_id.values():
+    for track in tracks_by_uri.values():
         album_name = track['album_name']
         if album_name not in albums_by_name:
             albums_by_name[album_name] = {
@@ -67,28 +142,28 @@ def get_albums(tracks_by_id):
                 'tracks_play_count': 0,
                 'complete_play_count': 0,
                 'play_time_ms': 0,
-                'track_ids': set()
+                'track_uris': set()
             }
 
         albums_by_name[album_name]['tracks_play_count'] += track['complete_play_count']
         albums_by_name[album_name]['play_time_ms'] += track['play_time_ms']
-        albums_by_name[album_name]['track_ids'].add(track['track_id'])
+        albums_by_name[album_name]['track_uris'].add(track['track_uri'])
 
     # The complete play count is a bit misleading, as it assumes that I've listened to all the tracks in the album at least once.
     for album in albums_by_name.values():
-        track_play_counts = [tracks_by_id[t]['complete_play_count'] for t in album['track_ids']]
+        track_play_counts = [tracks_by_uri[t]['complete_play_count'] for t in album['track_uris']]
         album['complete_play_count'] = min(track_play_counts)
 
     # This is a heuristic intended to filter out singles and EPs, and albums that haven't had a single complete play of any tracks
-    albums = [album for album in albums_by_name.values() if len(album['track_ids']) > 3 and album['tracks_play_count'] > 0]
+    albums = [album for album in albums_by_name.values() if len(album['track_uris']) > 3 and album['tracks_play_count'] > 0]
 
     albums.sort(key=lambda a: a['tracks_play_count'], reverse=True)
 
     return albums
 
-def get_artists(tracks_by_id):
+def get_artists(tracks_by_uri):
     artists_by_name = {}
-    for track in tracks_by_id.values():
+    for track in tracks_by_uri.values():
         artist_name = track['artist_name']
         if artist_name not in artists_by_name:
             artists_by_name[artist_name] = {
@@ -96,13 +171,13 @@ def get_artists(tracks_by_id):
                 'play_count': 0,
                 'complete_play_count': 0,
                 'play_time_ms': 0,
-                'track_ids': set()
+                'track_uris': set()
             }
 
         artists_by_name[artist_name]['play_count'] += track['play_count']
         artists_by_name[artist_name]['complete_play_count'] += track['complete_play_count']
         artists_by_name[artist_name]['play_time_ms'] += track['play_time_ms']
-        artists_by_name[artist_name]['track_ids'].add(track['track_id'])
+        artists_by_name[artist_name]['track_uris'].add(track['track_uri'])
 
     artists = list(artists_by_name.values())
     artists.sort(key=lambda a: a['play_count'], reverse=True)
@@ -293,49 +368,130 @@ def write_buckets_csv(output_path, buckets):
         for bucket in buckets:
             writer.writerow(bucket)
 
-def write_to_postgres(streams, postgres_host, postgres_sslmode, postgres_db, postgres_user, postgres_password):
-    with psycopg.connect(f"host={postgres_host} sslmode={postgres_sslmode} dbname={postgres_db} user={postgres_user} password={postgres_password}") as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                    CREATE TABLE IF NOT EXISTS spotify_streams (
-                        id serial PRIMARY KEY,
-                        timestamp TIMESTAMP NOT NULL,
-                        platform TEXT NOT NULL,
-                        ms_played INTEGER NOT NULL,
-                        conn_country TEXT NOT NULL,
-                        ip_addr TEXT NOT NULL,
-                        track_name TEXT,
-                        artist_name TEXT,
-                        album_name TEXT,
-                        track_uri TEXT,
-                        episode_name TEXT,
-                        episode_show_name TEXT,
-                        episode_uri TEXT,
-                        reason_start TEXT NOT NULL,
-                        reason_end TEXT NOT NULL,
-                        shuffle BOOLEAN NOT NULL,
-                        skipped BOOLEAN NOT NULL,
-                        offline BOOLEAN NOT NULL,
-                        offline_timestamp TIMESTAMP,
-                        incognito_mode BOOLEAN NOT NULL)
-                    """)
+def connect_to_postgres(postgres_host, postgres_sslmode, postgres_db, postgres_user, postgres_password):
+    return psycopg.connect(f"host={postgres_host} sslmode={postgres_sslmode} dbname={postgres_db} user={postgres_user} password={postgres_password}")
 
-            cur.execute("TRUNCATE TABLE spotify_streams")
+def write_streams_to_postgres(postgres_connection, streams):
+    with postgres_connection.cursor() as cur:
+        cur.execute("""
+                CREATE TABLE IF NOT EXISTS spotify_streams (
+                    id serial PRIMARY KEY,
+                    timestamp TIMESTAMP NOT NULL,
+                    platform TEXT NOT NULL,
+                    ms_played INTEGER NOT NULL,
+                    conn_country TEXT NOT NULL,
+                    ip_addr TEXT NOT NULL,
+                    track_name TEXT,
+                    artist_name TEXT,
+                    album_name TEXT,
+                    track_uri TEXT,
+                    episode_name TEXT,
+                    episode_show_name TEXT,
+                    episode_uri TEXT,
+                    reason_start TEXT NOT NULL,
+                    reason_end TEXT NOT NULL,
+                    shuffle BOOLEAN NOT NULL,
+                    skipped BOOLEAN NOT NULL,
+                    offline BOOLEAN NOT NULL,
+                    offline_timestamp TIMESTAMP,
+                    incognito_mode BOOLEAN NOT NULL)
+                """)
 
-            for stream in streams:
-                if stream['spotify_track_uri'] is None:
-                    # It's probably a podcast episode
-                    continue
+        cur.execute("TRUNCATE TABLE spotify_streams")
 
-                try:
-                    offline_timestamp = datetime.fromtimestamp(stream['offline_timestamp'] / 1000, timezone.utc) if stream['offline_timestamp'] else None
-                except BaseException as e:
-                    print('Offline timestamp is', stream['offline_timestamp'])
-                    raise e
+        print('Writing streams data to postgres...')
+        for stream in streams:
+            if stream['spotify_track_uri'] is None:
+                # It's probably a podcast episode
+                continue
 
-                cur.execute("INSERT INTO spotify_streams (timestamp, platform, ms_played, conn_country, ip_addr, track_name, artist_name, album_name, track_uri, reason_start, reason_end, shuffle, skipped, offline, offline_timestamp, incognito_mode) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (stream['ts'], stream['platform'], stream['ms_played'], stream['conn_country'], stream['ip_addr'], stream['master_metadata_track_name'], stream['master_metadata_album_artist_name'], stream['master_metadata_album_album_name'], stream['spotify_track_uri'], stream['reason_start'], stream['reason_end'], stream['shuffle'], stream['skipped'], stream['offline'], offline_timestamp, stream['incognito_mode']))
+            try:
+                offline_timestamp = datetime.fromtimestamp(stream['offline_timestamp'] / 1000, timezone.utc) if stream['offline_timestamp'] else None
+            except BaseException as e:
+                print('Offline timestamp is', stream['offline_timestamp'])
+                raise e
 
-        conn.commit()
+            cur.execute("INSERT INTO spotify_streams (timestamp, platform, ms_played, conn_country, ip_addr, track_name, artist_name, album_name, track_uri, reason_start, reason_end, shuffle, skipped, offline, offline_timestamp, incognito_mode) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (
+                stream['ts'],
+                stream['platform'],
+                stream['ms_played'],
+                stream['conn_country'],
+                stream['ip_addr'],
+                stream['master_metadata_track_name'],
+                stream['master_metadata_album_artist_name'],
+                stream['master_metadata_album_album_name'],
+                stream['spotify_track_uri'],
+                stream['reason_start'],
+                stream['reason_end'],
+                stream['shuffle'],
+                stream['skipped'],
+                stream['offline'],
+                offline_timestamp, stream['incognito_mode']))
+
+    postgres_connection.commit()
+
+def write_albums_metadata_to_postgres(postgres_connection, tracks_metadata):
+    albums_by_id = {}
+    for metadata in tracks_metadata:
+        albums_by_id[metadata['album']['id']] = metadata['album']
+
+    with postgres_connection.cursor() as cur:
+
+        cur.execute("""
+                CREATE TABLE IF NOT EXISTS spotify_albums (
+                    id serial PRIMARY KEY,
+                    spotify_id TEXT NOT NULL,
+                    spotify_uri TEXT NOT NULL,
+                    name TEXT,
+                    release_date TEXT,
+                    release_date_precision TEXT,
+                    total_tracks INTEGER,
+                    album_type TEXT)
+                """)
+
+        cur.execute("TRUNCATE TABLE spotify_albums")
+
+        print('Writing albums data to postgres...')
+        for album in albums_by_id.values():
+            cur.execute("INSERT INTO spotify_albums (spotify_id, spotify_uri, name, release_date, release_date_precision, total_tracks, album_type) VALUES (%s, %s, %s, %s, %s, %s, %s)", (
+                album['id'],
+                album['uri'],
+                album['name'],
+                album['release_date'],
+                album['release_date_precision'],
+                album['total_tracks'],
+                album['album_type']))
+
+    postgres_connection.commit()
+
+
+def write_tracks_metadata_to_postgres(postgres_connection, tracks_metadata):
+    with postgres_connection.cursor() as cur:
+
+        cur.execute("""
+                CREATE TABLE IF NOT EXISTS spotify_tracks (
+                    id serial PRIMARY KEY,
+                    spotify_id TEXT NOT NULL,
+                    spotify_uri TEXT NOT NULL,
+                    album_id TEXT,
+                    isrc TEXT,
+                    duration_ms INTEGER,
+                    popularity INTEGER)
+                """)
+
+        cur.execute("TRUNCATE TABLE spotify_tracks")
+
+        print('Writing tracks data to postgres...')
+        for track_metadata in tracks_metadata:
+            cur.execute('INSERT INTO spotify_tracks (spotify_id, spotify_uri, album_id, isrc, duration_ms, popularity) VALUES (%s, %s, %s, %s, %s, %s)', (
+                track_metadata['id'],
+                track_metadata['uri'],
+                track_metadata['album']['id'],
+                track_metadata['isrc'] if 'isrc' in track_metadata else None,
+                track_metadata['duration_ms'],
+                track_metadata['popularity']))
+
+    postgres_connection.commit()
 
 def main():
     parser = argparse.ArgumentParser(description='Supply the path to a directory of JSON files containing your Spotify extended streaming history.')
@@ -347,21 +503,30 @@ def main():
     parser.add_argument('--postgresql-db', default='postgres')
     parser.add_argument('--postgresql-user', default='postgres')
     parser.add_argument('--postgresql-password', default='password')
+    parser.add_argument('--spotify-client-id')
+    parser.add_argument('--spotify-client-secret')
+    parser.add_argument('--spotify-tracks-metadata-path')
     parser.add_argument('input_dir_path')
     args = parser.parse_args()
 
     streams = parse_input_json(args.input_dir_path)
 
-    if args.output_path:
-        tracks_by_id = get_tracks(streams)
+    if args.spotify_client_id and args.spotify_client_secret:
+        access_token = get_spotify_access_token(args.spotify_client_id, args.spotify_client_secret)
+        tracks_metadata = get_all_tracks_metadata(streams, access_token, args.spotify_tracks_metadata_path)
+    elif args.spotify_tracks_metadata_path:
+        tracks_metadata = read_json(args.spotify_tracks_metadata_path)
 
-        albums = get_albums(tracks_by_id)
-        artists = get_artists(tracks_by_id)
+    if args.output_path:
+        tracks_by_uri = get_tracks(streams)
+
+        albums = get_albums(tracks_by_uri)
+        artists = get_artists(tracks_by_uri)
 
         get_bucket_key = get_hour_of_week_bucket_key if args.bucket_type == 'hour-of-week' else get_hour_bucket_key
         buckets = get_buckets(streams, get_bucket_key)
 
-        stats = collect_stats(streams, len(tracks_by_id))
+        stats = collect_stats(streams, len(tracks_by_uri))
         ip_addrs = get_ip_addrs(stats)
         platforms = get_platforms(stats)
 
@@ -373,7 +538,7 @@ def main():
 
         write_csv(os.path.join(args.output_path, 'spotify_platforms.csv'), platforms)
 
-        write_csv(os.path.join(args.output_path, 'spotify_tracks.csv'), tracks_by_id.values())
+        write_csv(os.path.join(args.output_path, 'spotify_tracks.csv'), tracks_by_uri.values())
 
         write_albums_csv(os.path.join(args.output_path, 'spotify_albums.csv'), albums)
 
@@ -382,7 +547,18 @@ def main():
         write_buckets_csv(os.path.join(args.output_path, 'spotify_times.csv'), buckets)
 
     if args.postgresql:
-        write_to_postgres(streams, args.postgresql_host, args.postgresql_sslmode, args.postgresql_db, args.postgresql_user, args.postgresql_password)
+        postgres_connection = connect_to_postgres(args.postgresql_host,
+                                                  args.postgresql_sslmode,
+                                                  args.postgresql_db,
+                                                  args.postgresql_user,
+                                                  args.postgresql_password)
+
+        with postgres_connection:
+            write_streams_to_postgres(postgres_connection, streams)
+
+            if tracks_metadata:
+                write_albums_metadata_to_postgres(postgres_connection, tracks_metadata)
+                write_tracks_metadata_to_postgres(postgres_connection, tracks_metadata)
 
 if __name__ == "__main__":
     main()
