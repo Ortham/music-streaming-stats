@@ -132,7 +132,7 @@ def main():
 
     input_data = read_json(args.input_path)
     recording_ids = set()
-    for mbids in input_data['mbids_by_isrc'].values():
+    for mbids in input_data['mbids_by_spotify_uri'].values():
         for mbid in mbids:
             recording_ids.add(mbid)
 

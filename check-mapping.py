@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+from enum import Enum
 import json
 import os
 
@@ -18,14 +19,24 @@ def read_spotify_streams_json(dir_path):
 
     return streams
 
-def increment(count_time, stream):
-    if count_time:
+def increment(target, stream):
+    if target == Target.TIME:
         return stream['ms_played']
     else:
         return 1
 
-def check_streams(spotify_streams, spotify_tracks, musicbrainz, acousticbrainz, count_time):
-    print('Counting streams...')
+class Target(Enum):
+    STREAMS = 1
+    TRACKS = 2
+    TIME = 3
+
+def check_streams(spotify_streams, spotify_tracks, musicbrainz_ids, musicbrainz_genres, acousticbrainz, target):
+    if target == Target.TIME:
+        print('Counting time streamed...')
+    elif target == Target.TRACKS:
+        print('Counting tracks...')
+    else:
+        print('Counting streams...')
 
     streams_count = 0
     track_streams = 0
@@ -36,97 +47,70 @@ def check_streams(spotify_streams, spotify_tracks, musicbrainz, acousticbrainz, 
 
     spotify_tracks = {track['uri']: track for track in spotify_tracks}
 
+    track_uris = set()
+
     for stream in spotify_streams:
-        streams_count += increment(count_time, stream)
+        streams_count += increment(target, stream)
 
-        if not stream['spotify_track_uri']:
+        uri = stream['spotify_track_uri']
+
+        if not uri:
             continue
 
-        track_streams += increment(count_time, stream)
-
-        track = spotify_tracks[stream['spotify_track_uri']]
-
-        if 'isrc' not in track['external_ids']:
+        if target == Target.TRACKS and uri in track_uris:
             continue
 
-        isrc = track['external_ids']['isrc']
+        track_uris.add(uri)
 
-        streams_with_isrc_count += increment(count_time, stream)
+        track_streams += increment(target, stream)
 
-        if isrc not in musicbrainz['mbids_by_isrc']:
+        track = spotify_tracks[uri]
+
+        if 'isrc' in track['external_ids']:
+            streams_with_isrc_count += increment(target, stream)
+
+        if uri not in musicbrainz_ids['mbids_by_spotify_uri']:
             continue
 
-        streams_in_musicbrainz_count += increment(count_time, stream)
+        mbids = musicbrainz_ids['mbids_by_spotify_uri'][uri]
 
-        for mbid in musicbrainz['mbids_by_isrc'][isrc]:
-            if mbid in musicbrainz['genres_by_mbid']:
-                streams_with_genre_count += increment(count_time, stream)
+        streams_in_musicbrainz_count += increment(target, stream)
+
+        for mbid in mbids:
+            if mbid in musicbrainz_genres:
+                streams_with_genre_count += increment(target, stream)
                 break
 
-        for mbid in musicbrainz['mbids_by_isrc'][isrc]:
+        for mbid in mbids:
             if mbid in acousticbrainz:
-                streams_with_acoustic_count += increment(count_time, stream)
+                streams_with_acoustic_count += increment(target, stream)
                 break
 
-    print('Spotify streams:', streams_count)
-    print('track_streams', track_streams)
-    print('streams_with_isrc_count', streams_with_isrc_count)
-    print('streams_in_musicbrainz_count', streams_in_musicbrainz_count)
-    print('Tracks with genre', streams_with_genre_count)
-    print('Tracks with acoustic metadata', streams_with_acoustic_count)
-
-def check_tracks(spotify_tracks, musicbrainz, acousticbrainz):
-    print('Counting tracks...')
-    print('Spotify tracks:', len(spotify_tracks))
-
-    track_with_isrc_count = 0
-    track_in_musicbrainz_count = 0
-    track_with_genre_count = 0
-    track_with_acoustic_count = 0
-    for track in spotify_tracks:
-        if 'isrc' not in track['external_ids']:
-            continue
-
-        isrc = track['external_ids']['isrc']
-
-        track_with_isrc_count += 1
-
-        if isrc not in musicbrainz['mbids_by_isrc']:
-            continue
-
-        track_in_musicbrainz_count += 1
-
-        for mbid in musicbrainz['mbids_by_isrc'][isrc]:
-            if mbid in musicbrainz['genres_by_mbid']:
-                track_with_genre_count += 1
-                break
-
-        for mbid in musicbrainz['mbids_by_isrc'][isrc]:
-            if mbid in acousticbrainz:
-                track_with_acoustic_count += 1
-                break
-
-    print('track_with_isrc_count', track_with_isrc_count)
-    print('track_in_musicbrainz_count', track_in_musicbrainz_count)
-    print('Tracks with genre', track_with_genre_count)
-    print('Tracks with acoustic metadata', track_with_acoustic_count)
+    print('total', streams_count)
+    print('  of tracks', track_streams)
+    print('  in musicbrainz', streams_in_musicbrainz_count)
+    print('  with isrc', streams_with_isrc_count)
+    print('  with genre', streams_with_genre_count)
+    print('  with acoustic metadata', streams_with_acoustic_count)
+    print()
 
 def main():
     parser = argparse.ArgumentParser(description='Supply the path to a JSON file containing $[*].external_ids.isrc fields.')
     parser.add_argument('--spotify-streams-path')
     parser.add_argument('--spotify-path')
-    parser.add_argument('--musicbrainz-path')
+    parser.add_argument('--musicbrainz-ids-path')
+    parser.add_argument('--musicbrainz-genres-path')
     parser.add_argument('--acousticbrainz-path')
     args = parser.parse_args()
 
     spotify_streams = read_spotify_streams_json(args.spotify_streams_path)
     spotify_tracks = read_json(args.spotify_path)
-    musicbrainz = read_json(args.musicbrainz_path)
+    musicbrainz_ids = read_json(args.musicbrainz_ids_path)
+    musicbrainz_genres = read_json(args.musicbrainz_genres_path)
     acousticbrainz = read_json(args.acousticbrainz_path)
 
-    check_streams(spotify_streams, spotify_tracks, musicbrainz, acousticbrainz, True)
-    check_streams(spotify_streams, spotify_tracks, musicbrainz, acousticbrainz, False)
-    check_tracks(spotify_tracks, musicbrainz, acousticbrainz)
+    for target in Target:
+        check_streams(spotify_streams, spotify_tracks, musicbrainz_ids, musicbrainz_genres, acousticbrainz, target)
 
 if __name__ == "__main__":
     main()
