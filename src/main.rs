@@ -18,7 +18,6 @@ struct Args {
 
 #[derive(Deserialize)]
 struct SpotifyExternalIds {
-    // isrc: Option<String>,
     #[serde(default, deserialize_with = "from_str")]
     isrc: Option<[u8; 12]>,
 }
@@ -89,24 +88,24 @@ fn normalise_tracks(tracks: Vec<SpotifyTrack>) -> Vec<SpotifyTrack> {
 fn match_track<'a, 'b>(
     recording: &'a Recording,
     track: &'b SpotifyTrack,
-) -> Option<(&'b str, &'a Uuid)> {
+) -> bool {
     if recording.isrc.is_some() && track.external_ids.isrc == recording.isrc {
-        return Some((&track.uri, &recording.mbid));
+        return true
     }
 
     // if !track.name.contains(&recording.track_name) && !recording.track_name.contains(&track.name) {
     if track.name != recording.track_name {
-        return None;
+        return false;
     }
 
     for artist in &track.artists {
         // if artist.name.contains(&recording.artist_name) || recording.artist_name.contains(&artist.name) {
         if artist.name == recording.artist_name {
-            return Some((&track.uri, &recording.mbid));
+            return true;
         }
     }
 
-    None
+    false
 }
 
 fn find_matches<'a, 'b>(
@@ -117,8 +116,8 @@ fn find_matches<'a, 'b>(
 
     for recording in recordings {
         for track in tracks {
-            if let Some(data) = match_track(recording, track) {
-                matches.push(data);
+            if match_track(recording, track) {
+                matches.push((track.uri.as_str(), &recording.mbid));
             }
         }
     }

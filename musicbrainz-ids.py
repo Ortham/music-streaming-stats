@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+from datetime import datetime
 import json
 
 import psycopg
-from datetime import datetime
 
 def read_json(file_path):
     with open(file_path, encoding='utf-8') as f:
@@ -38,35 +38,32 @@ def get_musicbrainz_recording_ids(postgres_connection, track):
 
     return []
 
+def map_track(track):
+    artist_names = [a['name'].lower() for a in track['artists'] if a['name']]
+    isrc = track['external_ids']['isrc'].encode() if 'isrc' in track['external_ids'] else None
+
+    return (track['uri'], isrc, track['name'].lower(), artist_names)
+
+def map_recording(recording):
+    isrc = recording[0].encode() if recording[0] is not None else None
+    return (recording[1], isrc, recording[2].lower(), recording[3].lower())
+
 def match_track(recording, track):
-    if recording[0]:
-        isrc = track['external_ids']['isrc'] if 'isrc' in track['external_ids'] else None
-        if isrc == recording[0]:
+    if recording[1] and track[1] == recording[1]:
             return True
 
-    if track['name'] != recording[2]:
+    if track[2] != recording[2]:
         return False
 
-    for artist in track['artists']:
-        if artist['name'] == recording[3]:
+    for artist_name in track[3]:
+        if artist_name == recording[3]:
             return True
 
     return False
 
 def match_tracks(recordings, tracks):
-    for recording in recordings:
-        recording[2] = recording[2].lower()
-        recording[3] = recording[3].lower()
-
-    tracks = [t for t in tracks if t['name']]
-
-    for track in tracks:
-        track['name'] = track['name'].lower()
-
-        for artist in track['artists']:
-            artist['name'] = artist['name'].lower()
-
-        track['artists'] = [a for a in track['artists'] if a['name']]
+    recordings = [map_recording(r) for r in recordings]
+    tracks = [map_track(t) for t in tracks if t['name']]
 
     start = datetime.now()
 
@@ -74,7 +71,7 @@ def match_tracks(recordings, tracks):
     for recording in recordings:
         for track in tracks:
             if match_track(recording, track):
-                matches.append([track['uri'], recording[1]])
+                matches.append((track[0], recording[0]))
 
     print('Elapsed time', datetime.now() - start)
     print(f'Found {len(matches)} matches')
