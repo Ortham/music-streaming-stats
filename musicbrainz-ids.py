@@ -3,6 +3,8 @@
 import argparse
 from datetime import datetime
 import json
+import multiprocessing
+import os
 
 import psycopg
 
@@ -62,19 +64,34 @@ def match_track(recording, track):
     return False
 
 def match_tracks(recordings, tracks):
-    recordings = [map_recording(r) for r in recordings]
-    tracks = [map_track(t) for t in tracks if t['name']]
-
-    start = datetime.now()
-
     matches = []
     for recording in recordings:
         for track in tracks:
             if match_track(recording, track):
                 matches.append((track[0], recording[0]))
 
-    print('Elapsed time', datetime.now() - start)
-    print(f'Found {len(matches)} matches')
+    return matches
+
+def match_tracks_with_queue(queue, recordings, tracks):
+    queue.put(match_tracks(recordings, tracks))
+
+def match_tracks_par(recordings, tracks):
+    num_threads = os.process_cpu_count()
+
+    recordings_per_thread = int(len(recordings) / num_threads) + 1
+
+    print(f"Splitting {len(recordings)} recordings into chunks of {recordings_per_thread} over {num_threads} threads...")
+
+    matches = []
+
+    queue = multiprocessing.Queue()
+    for i in range(0, len(recordings), recordings_per_thread):
+        chunk = recordings[i:i + recordings_per_thread]
+        process = multiprocessing.Process(target=match_tracks_with_queue, args=(queue, chunk, tracks))
+        process.start()
+
+    for i in range(num_threads):
+        matches.extend(queue.get())
 
     return matches
 
@@ -108,7 +125,16 @@ def main():
         print('Loading recordings...')
         recordings = read_json(args.recordings_path)
 
-        matches = match_tracks(recordings, tracks_metadata)
+        recordings = [map_recording(r) for r in recordings]
+        tracks = [map_track(t) for t in tracks_metadata if t['name']]
+
+        start = datetime.now()
+
+        matches = match_tracks_par(recordings, tracks)
+
+        print('Elapsed time', datetime.now() - start)
+        print(f'Found {len(matches)} matches')
+
         for [uri, id] in matches:
             if uri in recording_ids_by_uri:
                 recording_ids_by_uri[uri].append(id)

@@ -145,17 +145,15 @@ fn find_matches_par<'a, 'b>(
 
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::scope(|s| {
-        let mut workers = vec![];
-
         for _ in 0..num_threads {
             if let Some(chunk) = iter.next() {
                 let sender = sender.clone();
 
-                workers.push(s.spawn(move || {
+                s.spawn(move || {
                     let matches = find_matches(chunk, tracks);
 
                     sender.send(matches).unwrap();
-                }))
+                });
             }
         }
 
@@ -170,7 +168,7 @@ fn find_matches_par<'a, 'b>(
 fn main() {
     let args = Args::parse();
 
-    println!("Reading all recordings...");
+    println!("Reading recordings...");
     let f = File::open(args.recordings_path).unwrap();
     let reader = BufReader::new(f);
     let mut recordings: Vec<Recording> = serde_json::from_reader(reader).unwrap();
