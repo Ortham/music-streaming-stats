@@ -71,9 +71,6 @@ def match_tracks(recordings, tracks):
     start = datetime.now()
 
     matches = []
-    # for track in tracks[:100]:
-    #     if match_unmapped_track(recordings, track):
-    #         matches.append(track['uri'])
     for recording in recordings:
         for track in tracks:
             if match_track(recording, track):
@@ -98,7 +95,7 @@ def main():
     parser.add_argument('--postgresql-password', default='musicbrainz')
     args = parser.parse_args()
 
-    tracks_metadata = read_json(args.spotify_tracks_metadata_path)[:10]
+    tracks_metadata = read_json(args.spotify_tracks_metadata_path)
     print('Tracks', len(tracks_metadata))
 
     count = 0
