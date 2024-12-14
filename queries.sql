@@ -33,7 +33,7 @@ select sum, label
       sum(ms_played) as sum
     from spotify_streams where $__timeFilter(timestamp)
     group by label, day, hour
-    order by day, hour)
+    order by day, hour);
 
 -- Stream end reasons
 select $__timeGroupAlias(timestamp, $__interval), reason_end as metric, count(*)
@@ -46,7 +46,7 @@ select $__timeGroupAlias(timestamp, $__interval), reason_end as metric, count(*)
 select count(*) as value, platform as metric, $__timeGroupAlias(timestamp, $__interval, 0)
   from spotify_streams where $__timeFilter(timestamp)
   group by time, platform
-  order by time
+  order by time;
 
 -- Top 10 completely streamed tracks
 select count(*) filter (where reason_end = 'trackdone') as "Complete streams",
@@ -56,7 +56,7 @@ select count(*) filter (where reason_end = 'trackdone') as "Complete streams",
   from spotify_streams where $__timeFilter(timestamp)
   group by track_uri, track_name
   order by "Complete streams" desc, "Incomplete streams" desc
-  limit 10
+  limit 10;
 
 -- Top 10 skipped tracks
 select count(*) filter (where skipped = true) as "Skipped streams",
@@ -66,7 +66,7 @@ select count(*) filter (where skipped = true) as "Skipped streams",
   from spotify_streams where $__timeFilter(timestamp)
   group by track_uri, track_name
   order by "Skipped streams" desc, "Complete streams" desc
-  limit 10
+  limit 10;
 
 -- Top 10 incompletely streamed tracks
 select count(*) filter (where reason_end <> 'trackdone') as "Incomplete streams",
@@ -76,7 +76,7 @@ select count(*) filter (where reason_end <> 'trackdone') as "Incomplete streams"
   from spotify_streams where $__timeFilter(timestamp)
   group by track_uri, track_name
   order by "Incomplete streams" desc, "Complete streams" desc
-  limit 10
+  limit 10;
 
 -- Complete streams per track
 select count(*) as "Streams",
@@ -85,7 +85,7 @@ select count(*) as "Streams",
     track_uri
   from spotify_streams where $__timeFilter(timestamp)
   group by track_uri, track_name
-  order by "Complete streams" desc, "Streams" desc
+  order by "Complete streams" desc, "Streams" desc;
 
 -- Streams per track
 select count(*) as "Streams",
@@ -94,7 +94,7 @@ select count(*) as "Streams",
     track_uri
   from spotify_streams where $__timeFilter(timestamp)
   group by track_uri, track_name
-  order by "Streams" desc, "Complete streams" desc
+  order by "Streams" desc, "Complete streams" desc;
 
 -- Top 5 tracks
 select time, metric, total
@@ -106,7 +106,7 @@ select time, metric, total
     from spotify_streams where $__timeFilter(timestamp) and reason_end = 'trackdone'
     group by time, track_uri, metric
     order by time asc, total desc)
-  where rank <= 5
+  where rank <= 5;
 
 -- Top 10 most streamed artists
 select count(*) filter (where reason_end = 'trackdone') as "Complete streams",
@@ -115,7 +115,7 @@ select count(*) filter (where reason_end = 'trackdone') as "Complete streams",
   from spotify_streams where $__timeFilter(timestamp)
   group by artist_name
   order by "Complete streams" desc
-  limit 10
+  limit 10;
 
 -- Top 10 albums
 select count(*) filter (where reason_end = 'trackdone') as "Complete streams",
@@ -124,7 +124,7 @@ select count(*) filter (where reason_end = 'trackdone') as "Complete streams",
   from spotify_streams where $__timeFilter(timestamp)
   group by album_name
   order by "Complete streams" desc
-  limit 10
+  limit 10;
 
 -- Top 5 albums
 select time, metric, total
@@ -135,7 +135,7 @@ select time, metric, total
     from spotify_streams where $__timeFilter(timestamp) and reason_end = 'trackdone'
     group by time, metric
     order by time asc, total desc)
-  where rank <= 5
+  where rank <= 5;
 
 -- Top 5 artists
 select time, metric, total
@@ -146,4 +146,4 @@ select time, metric, total
     from spotify_streams where $__timeFilter(timestamp) and reason_end = 'trackdone'
     group by time, metric
     order by time asc, total desc)
-  where rank <= 5
+  where rank <= 5;
