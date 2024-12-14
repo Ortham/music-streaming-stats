@@ -493,6 +493,116 @@ def write_tracks_metadata_to_postgres(postgres_connection, tracks_metadata):
 
     postgres_connection.commit()
 
+def write_musicbrainz_ids_to_postgres(postgres_connection, mb_metadata):
+    with postgres_connection.cursor() as cur:
+
+        cur.execute("""
+                CREATE TABLE IF NOT EXISTS musicbrainz_recordings (
+                    id serial PRIMARY KEY,
+                    spotify_uri TEXT NOT NULL,
+                    musicbrainz_id UUID NOT NULL)
+                """)
+
+        cur.execute("TRUNCATE TABLE musicbrainz_recordings")
+
+        print('Writing MusicBrainz ID data to postgres...')
+        for uri in mb_metadata['mbids_by_spotify_uri']:
+            for mbid in mb_metadata['mbids_by_spotify_uri'][uri]:
+                cur.execute('INSERT INTO musicbrainz_recordings (spotify_uri, musicbrainz_id) VALUES (%s, %s)', (uri, mbid))
+
+    postgres_connection.commit()
+
+
+def write_musicbrainz_tags_to_postgres(postgres_connection, tags_by_recording_id):
+    with postgres_connection.cursor() as cur:
+        cur.execute("""
+                CREATE TABLE IF NOT EXISTS musicbrainz_recording_tags (
+                    id serial PRIMARY KEY,
+                    recording_id UUID NOT NULL,
+                    name TEXT NOT NULL,
+                    count INTEGER,
+                    musicbrainz_genre_id UUID)
+                """)
+
+        cur.execute("TRUNCATE TABLE musicbrainz_recording_tags")
+
+        print('Writing MusicBrainz tag data to postgres...')
+        for mbid in tags_by_recording_id:
+            for tag in tags_by_recording_id[mbid]:
+                cur.execute('INSERT INTO musicbrainz_recording_tags (recording_id, name, count, musicbrainz_genre_id) VALUES (%s, %s, %s, %s)', (mbid, tag['name'], tag['tag_count'], tag['genre_id']))
+
+    postgres_connection.commit()
+
+
+def write_acousticbrainz_metadata_to_postgres(postgres_connection, metadata_by_mbid):
+    with postgres_connection.cursor() as cur:
+        cur.execute("""
+                CREATE TABLE IF NOT EXISTS acousticbrainz (
+                    id serial PRIMARY KEY,
+                    recording_id UUID NOT NULL,
+                    is_danceable BOOLEAN,
+                    gender TEXT,
+                    is_acoustic BOOLEAN,
+                    is_aggressive BOOLEAN,
+                    is_electronic BOOLEAN,
+                    is_happy BOOLEAN,
+                    is_party BOOLEAN,
+                    is_relaxed BOOLEAN,
+                    is_sad BOOLEAN,
+                    timbre TEXT,
+                    is_tonal BOOLEAN,
+                    is_instrumental BOOLEAN,
+                    bpm SMALLINT NOT NULL,
+                    chords_key TEXT NOT NULL,
+                    chords_scale TEXT NOT NULL,
+                    key_key TEXT,
+                    key_scale TEXT)
+                """)
+
+        cur.execute("TRUNCATE TABLE acousticbrainz")
+
+        print('Writing AcousticBrainz data to postgres...')
+        for mbid in metadata_by_mbid:
+            high_level = metadata_by_mbid[mbid]['high_level'] if 'high_level' in metadata_by_mbid[mbid] else {
+                'is_danceable': None,
+                'gender': None,
+                'is_acoustic': None,
+                'is_aggressive': None,
+                'is_electronic': None,
+                'is_happy': None,
+                'is_party': None,
+                'is_relaxed': None,
+                'is_sad': None,
+                'timbre': None,
+                'is_tonal': None,
+                'is_instrumental': None,
+            }
+            bpm = metadata_by_mbid[mbid]['low_level']['rhythm']['bpm']
+            tonal = metadata_by_mbid[mbid]['low_level']['tonal']
+
+            cur.execute('INSERT INTO acousticbrainz (recording_id, is_danceable, gender, is_acoustic, is_aggressive, is_electronic, is_happy, is_party, is_relaxed, is_sad, timbre, is_tonal, is_instrumental, bpm, chords_key, chords_scale, key_key, key_scale) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)', (
+                mbid,
+                high_level['is_danceable'],
+                high_level['gender'],
+                high_level['is_acoustic'],
+                high_level['is_aggressive'],
+                high_level['is_electronic'],
+                high_level['is_happy'],
+                high_level['is_party'],
+                high_level['is_relaxed'],
+                high_level['is_sad'],
+                high_level['timbre'],
+                high_level['is_tonal'],
+                high_level['is_instrumental'],
+                bpm,
+                tonal['chords_key'],
+                tonal['chords_scale'],
+                tonal['key_key'],
+                tonal['key_scale']
+            ))
+
+    postgres_connection.commit()
+
 def main():
     parser = argparse.ArgumentParser(description='Supply the path to a directory of JSON files containing your Spotify extended streaming history.')
     parser.add_argument('--output-path')
@@ -506,6 +616,9 @@ def main():
     parser.add_argument('--spotify-client-id')
     parser.add_argument('--spotify-client-secret')
     parser.add_argument('--spotify-tracks-metadata-path')
+    parser.add_argument('--acousticbrainz-metadata-path')
+    parser.add_argument('--musicbrainz-ids-path')
+    parser.add_argument('--musicbrainz-tags-path')
     parser.add_argument('input_dir_path')
     args = parser.parse_args()
 
@@ -559,6 +672,19 @@ def main():
             if tracks_metadata:
                 write_albums_metadata_to_postgres(postgres_connection, tracks_metadata)
                 write_tracks_metadata_to_postgres(postgres_connection, tracks_metadata)
+
+            if args.musicbrainz_ids_path:
+                ids = read_json(args.musicbrainz_ids_path)
+                write_musicbrainz_ids_to_postgres(postgres_connection, ids)
+
+            if args.musicbrainz_tags_path:
+                tags = read_json(args.musicbrainz_tags_path)
+                write_musicbrainz_tags_to_postgres(postgres_connection, tags)
+
+            if args.acousticbrainz_metadata_path:
+                ab_metadata = read_json(args.acousticbrainz_metadata_path)
+                write_acousticbrainz_metadata_to_postgres(postgres_connection, ab_metadata)
+
 
 if __name__ == "__main__":
     main()
