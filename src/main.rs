@@ -36,12 +36,19 @@ struct SpotifyArtist {
 }
 
 #[derive(Deserialize)]
-struct Recording {
+struct RecordingIsrcArtist {
     #[serde(deserialize_with = "from_str")]
     isrc: Option<[u8; 12]>,
     mbid: Uuid,
     track_name: String,
     artist_name: String,
+}
+
+struct Recording {
+    mbid: Uuid,
+    track_name: String,
+    isrcs: Vec<[u8; 12]>,
+    artist_names: Vec<String>
 }
 
 fn from_str<'de, D>(deserializer: D) -> Result<Option<[u8; 12]>, D::Error>
@@ -58,11 +65,31 @@ struct Results<'a, 'b> {
     unmapped_track_uris: Vec<&'a str>,
 }
 
-fn normalise_recordings(recordings: &mut [Recording]) {
+fn normalise_recordings(recordings: Vec<RecordingIsrcArtist>) -> Vec<Recording> {
+    let mut recordings_by_mbid: HashMap<Uuid, Recording> = HashMap::new();
     for recording in recordings {
-        recording.track_name = recording.track_name.to_lowercase();
-        recording.artist_name = recording.artist_name.to_lowercase();
+        let track_name = recording.track_name.to_lowercase();
+        let artist_name = recording.artist_name.to_lowercase();
+
+        recordings_by_mbid.entry(recording.mbid).and_modify(|r| {
+            if r.track_name != track_name {
+                panic!("Expected track name {}, got {} for recording {}", r.track_name, track_name, r.mbid);
+            }
+
+            if let Some(isrc) = recording.isrc {
+                r.isrcs.push(isrc);
+            }
+
+            r.artist_names.push(artist_name.clone());
+        }).or_insert(Recording {
+            mbid: recording.mbid,
+            track_name: track_name,
+            isrcs: recording.isrc.into_iter().collect(),
+            artist_names: vec![artist_name.clone()]
+        });
     }
+
+    recordings_by_mbid.into_values().collect()
 }
 
 fn normalise_tracks(tracks: Vec<SpotifyTrack>) -> Vec<SpotifyTrack> {
@@ -89,8 +116,12 @@ fn match_track<'a, 'b>(
     recording: &'a Recording,
     track: &'b SpotifyTrack,
 ) -> bool {
-    if recording.isrc.is_some() && track.external_ids.isrc == recording.isrc {
-        return true
+    if !recording.isrcs.is_empty() {
+        if let Some(isrc) = track.external_ids.isrc {
+            if recording.isrcs.contains(&isrc) {
+                return true;
+            }
+        }
     }
 
     // if !track.name.contains(&recording.track_name) && !recording.track_name.contains(&track.name) {
@@ -98,10 +129,12 @@ fn match_track<'a, 'b>(
         return false;
     }
 
-    for artist in &track.artists {
-        // if artist.name.contains(&recording.artist_name) || recording.artist_name.contains(&artist.name) {
-        if artist.name == recording.artist_name {
-            return true;
+        for track_artist in &track.artists {
+            for recording_artist_name in &recording.artist_names {
+            // if artist.name.contains(&recording.artist_name) || recording.artist_name.contains(&artist.name) {
+            if track_artist.name == *recording_artist_name {
+                return true;
+            }
         }
     }
 
@@ -171,7 +204,7 @@ fn main() {
     println!("Reading recordings...");
     let f = File::open(args.recordings_path).unwrap();
     let reader = BufReader::new(f);
-    let mut recordings: Vec<Recording> = serde_json::from_reader(reader).unwrap();
+    let recordings: Vec<RecordingIsrcArtist> = serde_json::from_reader(reader).unwrap();
     println!("Loaded {} recordings", recordings.len());
 
     println!("Reading Spotify tracks metadata...");
@@ -181,7 +214,7 @@ fn main() {
     println!("Loaded {} Spotify tracks", tracks.len());
 
     println!("Normalising recordings...");
-    normalise_recordings(&mut recordings);
+    let recordings = normalise_recordings(recordings);
 
     println!("Normalising tracks...");
     let tracks = &normalise_tracks(tracks);
