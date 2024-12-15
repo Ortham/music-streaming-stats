@@ -2,12 +2,9 @@
 
 import argparse
 from enum import Enum
-import json
 import os
 
-def read_json(file_path):
-    with open(file_path, encoding='utf-8') as f:
-        return json.load(f)
+from helpers import read_json
 
 def read_spotify_streams_json(dir_path):
     streams = []

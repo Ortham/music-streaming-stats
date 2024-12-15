@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
-import json
 
-def read_json(file_path):
-    with open(file_path, encoding='utf-8') as f:
-        return json.load(f)
-
-def write_json(output_path, data):
-    with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent="\t")
-
+from helpers import read_json, write_json
 
 def main():
     parser = argparse.ArgumentParser(description='')

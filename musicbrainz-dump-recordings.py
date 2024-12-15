@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
-import json
 
-import psycopg
-
-def write_json(output_path, data):
-    with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent="\t")
-
-def connect_to_postgres(postgres_host, postgres_port, postgres_sslmode, postgres_db, postgres_user, postgres_password):
-    return psycopg.connect(f"host={postgres_host} port={postgres_port} sslmode={postgres_sslmode} dbname={postgres_db} user={postgres_user} password={postgres_password}")
+from helpers import write_json, connect_to_postgres
 
 def get_all_musicbrainz_recordings(postgres_connection):
     with postgres_connection.cursor() as cur:
