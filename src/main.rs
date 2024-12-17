@@ -16,10 +16,13 @@ struct Args {
     output_path: PathBuf,
 }
 
+type Isrc = [u8; 12];
+type Mbid = Uuid;
+
 #[derive(Deserialize)]
 struct SpotifyExternalIds {
     #[serde(default, deserialize_with = "from_str")]
-    isrc: Option<[u8; 12]>,
+    isrc: Option<Isrc>,
 }
 
 #[derive(Deserialize)]
@@ -38,20 +41,20 @@ struct SpotifyArtist {
 #[derive(Deserialize)]
 struct RecordingIsrcArtist {
     #[serde(deserialize_with = "from_str")]
-    isrc: Option<[u8; 12]>,
-    mbid: Uuid,
+    isrc: Option<Isrc>,
+    mbid: Mbid,
     track_name: String,
     artist_name: String,
 }
 
 struct Recording {
-    mbid: Uuid,
+    mbid: Mbid,
     track_name: String,
-    isrcs: Vec<[u8; 12]>,
+    isrcs: Vec<Isrc>,
     artist_names: Vec<String>
 }
 
-fn from_str<'de, D>(deserializer: D) -> Result<Option<[u8; 12]>, D::Error>
+fn from_str<'de, D>(deserializer: D) -> Result<Option<Isrc>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -61,12 +64,12 @@ where
 
 #[derive(Serialize)]
 struct Results<'a, 'b> {
-    mbids_by_spotify_uri: HashMap<&'a str, Vec<&'b Uuid>>,
+    mbids_by_spotify_uri: HashMap<&'a str, Vec<&'b Mbid>>,
     unmapped_track_uris: Vec<&'a str>,
 }
 
 fn normalise_recordings(recordings: Vec<RecordingIsrcArtist>) -> Vec<Recording> {
-    let mut recordings_by_mbid: HashMap<Uuid, Recording> = HashMap::new();
+    let mut recordings_by_mbid: HashMap<Mbid, Recording> = HashMap::new();
     for recording in recordings {
         let track_name = recording.track_name.to_lowercase();
         let artist_name = recording.artist_name.to_lowercase();
@@ -83,7 +86,7 @@ fn normalise_recordings(recordings: Vec<RecordingIsrcArtist>) -> Vec<Recording> 
             r.artist_names.push(artist_name.clone());
         }).or_insert(Recording {
             mbid: recording.mbid,
-            track_name: track_name,
+            track_name,
             isrcs: recording.isrc.into_iter().collect(),
             artist_names: vec![artist_name.clone()]
         });
@@ -106,15 +109,14 @@ fn normalise_tracks(tracks: Vec<SpotifyTrack>) -> Vec<SpotifyTrack> {
                     name: a.name.to_lowercase(),
                 })
                 .collect(),
-            uri: t.uri,
-            external_ids: t.external_ids,
+            ..t
         })
         .collect()
 }
 
-fn match_track<'a, 'b>(
-    recording: &'a Recording,
-    track: &'b SpotifyTrack,
+fn match_track(
+    recording: &Recording,
+    track: &SpotifyTrack,
 ) -> bool {
     if !recording.isrcs.is_empty() {
         if let Some(isrc) = track.external_ids.isrc {
@@ -144,7 +146,7 @@ fn match_track<'a, 'b>(
 fn find_matches<'a, 'b>(
     recordings: &'a [Recording],
     tracks: &'b [SpotifyTrack],
-) -> Vec<(&'b str, &'a Uuid)> {
+) -> Vec<(&'b str, &'a Mbid)> {
     let mut matches = Vec::new();
 
     for recording in recordings {
@@ -161,20 +163,13 @@ fn find_matches<'a, 'b>(
 fn find_matches_par<'a, 'b>(
     recordings: &'a [Recording],
     tracks: &'b [SpotifyTrack],
-) -> Vec<(&'b str, &'a Uuid)> {
+) -> Vec<(&'b str, &'a Mbid)> {
     let num_threads = usize::from(std::thread::available_parallelism().unwrap());
 
     let recordings_per_thread = (recordings.len() / num_threads) + 1;
 
     let mut iter = recordings.chunks(recordings_per_thread);
     let mut matches = vec![];
-
-    println!(
-        "Splitting {} recordings into chunks of {} over {} threads...",
-        recordings.len(),
-        recordings_per_thread,
-        num_threads
-    );
 
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::scope(|s| {
@@ -195,7 +190,29 @@ fn find_matches_par<'a, 'b>(
         }
     });
 
-    return matches;
+    matches
+}
+
+fn process_results<'a, 'b>(tracks: &'a [SpotifyTrack], matched: &[(&'a str, &'b Mbid)]) -> Results<'a, 'b> {
+    let mut mbids_by_spotify_uri: HashMap<_, Vec<_>> = HashMap::new();
+
+    for (key, value) in matched {
+        mbids_by_spotify_uri
+            .entry(*key)
+            .and_modify(|v| v.push(*value))
+            .or_insert(vec![value]);
+    }
+
+    let unmapped_track_uris: Vec<_> = tracks
+        .iter()
+        .map(|t| t.uri.as_str())
+        .filter(|uri| !mbids_by_spotify_uri.contains_key(uri))
+        .collect();
+
+    Results {
+        mbids_by_spotify_uri,
+        unmapped_track_uris,
+    }
 }
 
 fn main() {
@@ -217,41 +234,23 @@ fn main() {
     let recordings = normalise_recordings(recordings);
 
     println!("Normalising tracks...");
-    let tracks = &normalise_tracks(tracks);
+    let tracks = normalise_tracks(tracks);
     println!("Left with {} tracks", tracks.len());
 
     let start = SystemTime::now();
 
-    let matched = find_matches_par(&recordings, tracks);
+    let matched = find_matches_par(&recordings, &tracks);
 
     println!("Found: {} matches", matched.len());
     println!("Took {} ms", start.elapsed().unwrap().as_millis());
 
-    let mut mbids_by_spotify_uri: HashMap<&str, Vec<&Uuid>> = HashMap::new();
-
-    for (key, value) in matched {
-        mbids_by_spotify_uri
-            .entry(key)
-            .and_modify(|v| v.push(value))
-            .or_insert(vec![value]);
-    }
-
-    let unmapped_track_uris: Vec<_> = tracks
-        .iter()
-        .filter(|t| !mbids_by_spotify_uri.contains_key(t.uri.as_str()))
-        .map(|t| t.uri.as_str())
-        .collect();
+    let results = process_results(&tracks, &matched);
 
     println!(
         "Mapped {} tracks, {} tracks unmapped",
-        &mbids_by_spotify_uri.len(),
-        &unmapped_track_uris.len()
+        results.mbids_by_spotify_uri.len(),
+        results.unmapped_track_uris.len()
     );
-
-    let results = Results {
-        mbids_by_spotify_uri,
-        unmapped_track_uris,
-    };
 
     let json = serde_json::to_string_pretty(&results).unwrap();
 
