@@ -1,8 +1,7 @@
-use std::{collections::HashMap, fs::File, io::BufReader, path::PathBuf, time::SystemTime};
+use std::{collections::HashMap, fmt::Display, fs::File, io::BufReader, path::PathBuf, time::SystemTime};
 
 use clap::{arg, Parser};
 use serde::{Deserialize, Deserializer, Serialize};
-use uuid::Uuid;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -28,8 +27,34 @@ impl <'de> serde::Deserialize<'de> for Isrc {
     }
 }
 
+#[derive(Eq, Hash, PartialEq, Copy, Clone, Debug)]
+struct Mbid(u128);
 
-type Mbid = Uuid;
+impl serde::Serialize for Mbid {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        String::serialize(&self.to_string(), serializer)
+    }
+}
+
+impl <'de> serde::Deserialize<'de> for Mbid {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de> {
+        String::deserialize(deserializer)
+            .map(|s| Mbid(u128::from_str_radix(&s.replace("-", ""), 16).unwrap()))
+    }
+}
+
+impl Display for Mbid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let hex = format!("{:032x}", self.0);
+        let with_separators = format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..]);
+
+        write!(f, "{}", with_separators)
+    }
+}
 
 #[derive(Deserialize)]
 struct SpotifyExternalIds {
