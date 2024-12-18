@@ -16,12 +16,23 @@ struct Args {
     output_path: PathBuf,
 }
 
-type Isrc = [u8; 12];
+#[derive(PartialEq, Clone, Copy)]
+struct Isrc([u8; 12]);
+
+impl <'de> serde::Deserialize<'de> for Isrc {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de> {
+        String::deserialize(deserializer)
+            .map(|s| Isrc(*s.to_uppercase().as_bytes().first_chunk::<12>().unwrap()))
+    }
+}
+
+
 type Mbid = Uuid;
 
 #[derive(Deserialize)]
 struct SpotifyExternalIds {
-    #[serde(default, deserialize_with = "from_str")]
     isrc: Option<Isrc>,
 }
 
@@ -40,7 +51,6 @@ struct SpotifyArtist {
 
 #[derive(Deserialize)]
 struct RecordingIsrcArtist {
-    #[serde(deserialize_with = "from_str")]
     isrc: Option<Isrc>,
     mbid: Mbid,
     track_name: String,
@@ -52,14 +62,6 @@ struct Recording {
     track_name: String,
     isrcs: Vec<Isrc>,
     artist_names: Vec<String>
-}
-
-fn from_str<'de, D>(deserializer: D) -> Result<Option<Isrc>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Option::<String>::deserialize(deserializer)
-        .map(|option| option.and_then(|s| s.to_uppercase().as_bytes().first_chunk::<12>().cloned()))
 }
 
 #[derive(Serialize)]
