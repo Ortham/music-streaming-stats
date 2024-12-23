@@ -106,7 +106,7 @@ def reduce_metadata(recording_metadata):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Supply the path to a JSON file containing $[*].external_ids.isrc fields.')
+    parser = argparse.ArgumentParser(description='Supply the path to a JSON file containing $.mbids_by_spotify_uri')
     parser.add_argument('--input-path')
     parser.add_argument('--output-path')
     parser.add_argument('--reduce-metadata', action='store_const', const=True)
@@ -124,16 +124,23 @@ def main():
 
         exit(0)
 
+    recordings_audio_metadata = {}
+    try:
+        recordings_audio_metadata = read_json(args.output_path)
+    except Exception as e:
+        print(f'Could not read file at {args.output_path}, will fetch audio metadata for all recordings.')
+        pass
+
     input_data = read_json(args.input_path)
     recording_ids = set()
     for mbids in input_data['mbids_by_spotify_uri'].values():
         for mbid in mbids:
-            recording_ids.add(mbid)
+            if mbid not in recordings_audio_metadata:
+                recording_ids.add(mbid)
 
     recording_ids = list(recording_ids)
     print(f'Fetching audio metadata for {len(recording_ids)} recordings...')
 
-    recordings_audio_metadata = {}
     i = 0
     while i < len(recording_ids):
         print(f'Getting metadata for recordings {i} to {i + max_recordings_per_request}...')
