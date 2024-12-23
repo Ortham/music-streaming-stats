@@ -7,26 +7,44 @@ import os
 
 from helpers import read_json, write_json, connect_to_postgres
 
-def get_musicbrainz_recording_ids(postgres_connection, track):
-    isrc = track['external_ids']['isrc'] if 'isrc' in track['external_ids'] else None
-    spotify_track_name = track['name'].lower()
+def get_musicbrainz_recording_ids_by_isrc(postgres_connection, track):
+    isrc = track['external_ids']['isrc'].upper() if 'isrc' in track['external_ids'] else None
 
+    with postgres_connection.cursor() as cur:
+        cur.execute("""
+                    select gid from recording r
+                        join isrc i on i.recording = r.id
+                        where isrc is not null and isrc = %s
+                    """, (isrc,))
+        rows = cur.fetchall()
+
+        if rows:
+            return [str(row[0]) for row in rows]
+
+    return []
+
+def get_musicbrainz_recording_ids_by_name(postgres_connection, track):
+    mbids = []
     for artist in track['artists']:
-        spotify_artist_name = artist['name'].lower()
-
         with postgres_connection.cursor() as cur:
             cur.execute("""
                         select gid from recording r
-                            left join isrc i on i.recording = r.id
                             join artist_credit_name acn on r.artist_credit = acn.artist_credit
-                            where (isrc is not null and isrc = %s) or (lower(r.name) = %s and lower(acn.name) = %s)
-                        """, (isrc, spotify_track_name, spotify_artist_name))
+                            where lower(r.name) = lower(%s) and lower(acn.name) = lower(%s)
+                        """, (track['name'], artist['name']))
             rows = cur.fetchall()
 
-            if rows:
-                return [str(row[0]) for row in rows]
+            for row in rows:
+                mbids.append(str(row[0]))
 
-    return []
+    return mbids
+
+def get_musicbrainz_recording_ids(postgres_connection, track):
+    mbids = get_musicbrainz_recording_ids_by_isrc(postgres_connection, track)
+
+    mbids.extend(get_musicbrainz_recording_ids_by_name(postgres_connection, track))
+
+    return list(set(mbids))
 
 def map_track(track):
     artist_names = [a['name'].lower() for a in track['artists'] if a['name']]
@@ -88,7 +106,6 @@ def main():
     parser.add_argument('--spotify-tracks-metadata-path')
     parser.add_argument('--recordings-path')
     parser.add_argument('--output-path')
-    parser.add_argument('--postgresql', action='store_const', const=True)
     parser.add_argument('--postgresql-host', default='localhost')
     parser.add_argument('--postgresql-port', default='6543')
     parser.add_argument('--postgresql-sslmode', default='disable')
@@ -107,6 +124,7 @@ def main():
     print('Tracks with ISRCs', count)
 
     recording_ids_by_uri = {}
+    recording_ids = []
     unmapped_track_uris = []
 
     if args.recordings_path:
@@ -128,6 +146,8 @@ def main():
                 recording_ids_by_uri[uri].append(id)
             else:
                 recording_ids_by_uri[uri] = [id]
+
+            recording_ids.append(id)
     else:
         postgres_connection = connect_to_postgres(args.postgresql_host,
                                                     args.postgresql_port,
@@ -141,17 +161,17 @@ def main():
 
             for track in tracks_metadata:
                 uri = track['uri']
-                recording_ids = get_musicbrainz_recording_ids(postgres_connection, track)
+                track_recording_ids = get_musicbrainz_recording_ids(postgres_connection, track)
 
-                if recording_ids:
-                    recording_ids_by_uri[uri] = recording_ids
+                if track_recording_ids:
+                    recording_ids_by_uri[uri] = track_recording_ids
+                    recording_ids.extend(track_recording_ids)
                 else:
                     unmapped_track_uris.append(uri)
 
             print('Elapsed time', datetime.now() - start)
 
-    print('Mapped tracks', len(recording_ids_by_uri))
-    print('Unmapped tracks', len(unmapped_track_uris))
+    print(f'Mapped {len(recording_ids_by_uri)} tracks to {len(recording_ids)} recordings ({len(set(recording_ids))} unique), leaving {len(unmapped_track_uris)} unmapped tracks')
 
     if args.output_path:
         content = {
