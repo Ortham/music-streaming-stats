@@ -18,7 +18,6 @@ def get_all_musicbrainz_recordings(postgres_connection):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output-path')
-    parser.add_argument('--postgresql', action='store_const', const=True)
     parser.add_argument('--postgresql-host', default='localhost')
     parser.add_argument('--postgresql-port', default='6543')
     parser.add_argument('--postgresql-sslmode', default='disable')
