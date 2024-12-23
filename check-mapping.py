@@ -85,8 +85,8 @@ def check_streams(spotify_streams, spotify_tracks, musicbrainz_ids, musicbrainz_
 
     print('total', streams_count)
     print('  of tracks', track_streams)
-    print('  in musicbrainz', streams_in_musicbrainz_count)
     print('  with isrc', streams_with_isrc_count)
+    print('  in musicbrainz', streams_in_musicbrainz_count)
     print('  with genre', streams_with_genre_count)
     print('  with acoustic metadata', streams_with_acoustic_count)
     print()
@@ -94,14 +94,14 @@ def check_streams(spotify_streams, spotify_tracks, musicbrainz_ids, musicbrainz_
 def main():
     parser = argparse.ArgumentParser(description='Supply the path to a JSON file containing $[*].external_ids.isrc fields.')
     parser.add_argument('--spotify-streams-path')
-    parser.add_argument('--spotify-path')
+    parser.add_argument('--spotify-tracks-path')
     parser.add_argument('--musicbrainz-ids-path')
     parser.add_argument('--musicbrainz-genres-path')
     parser.add_argument('--acousticbrainz-path')
     args = parser.parse_args()
 
     spotify_streams = read_spotify_streams_json(args.spotify_streams_path)
-    spotify_tracks = read_json(args.spotify_path)
+    spotify_tracks = read_json(args.spotify_tracks_path)
     musicbrainz_ids = read_json(args.musicbrainz_ids_path)
     musicbrainz_genres = read_json(args.musicbrainz_genres_path)
     acousticbrainz = read_json(args.acousticbrainz_path)
