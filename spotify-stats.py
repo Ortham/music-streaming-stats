@@ -3,19 +3,15 @@
 import argparse
 import csv
 from datetime import datetime, timedelta, timezone
-import json
 import os
 from time import sleep
 
-import psycopg
 import requests
+
+from helpers import read_json, write_json, connect_to_postgres
 
 bucket_duration_secs = 3600
 max_tracks_per_request = 50
-
-def read_json(file_path):
-    with open(file_path, encoding='utf-8') as f:
-        return json.load(f)
 
 def parse_input_json(dir_path):
     streams = []
@@ -329,10 +325,6 @@ def get_platforms(stats):
 
     return platforms
 
-def write_json(output_path, data):
-    with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent="\t")
-
 def write_csv(output_path, rows):
     with open(output_path, 'w', newline='', encoding='utf-8') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=list(next(iter(rows)).keys()))
@@ -367,9 +359,6 @@ def write_buckets_csv(output_path, buckets):
         writer.writeheader()
         for bucket in buckets:
             writer.writerow(bucket)
-
-def connect_to_postgres(postgres_host, postgres_sslmode, postgres_db, postgres_user, postgres_password):
-    return psycopg.connect(f"host={postgres_host} sslmode={postgres_sslmode} dbname={postgres_db} user={postgres_user} password={postgres_password}")
 
 def write_streams_to_postgres(postgres_connection, streams):
     with postgres_connection.cursor() as cur:
@@ -609,6 +598,7 @@ def main():
     parser.add_argument('-b', '--bucket-type', choices=['hour', 'hour-of-week'], default='hour')
     parser.add_argument('--postgresql', action='store_const', const=True)
     parser.add_argument('--postgresql-host', default='localhost')
+    parser.add_argument('--postgresql-port', default='5432')
     parser.add_argument('--postgresql-sslmode', default='disable')
     parser.add_argument('--postgresql-db', default='postgres')
     parser.add_argument('--postgresql-user', default='postgres')
@@ -661,6 +651,7 @@ def main():
 
     if args.postgresql:
         postgres_connection = connect_to_postgres(args.postgresql_host,
+                                                  args.postgresql_port,
                                                   args.postgresql_sslmode,
                                                   args.postgresql_db,
                                                   args.postgresql_user,
