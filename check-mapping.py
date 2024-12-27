@@ -27,7 +27,7 @@ class Target(Enum):
     TRACKS = 2
     TIME = 3
 
-def check_streams(spotify_streams, spotify_tracks, musicbrainz_ids, musicbrainz_genres, acousticbrainz, target):
+def check_streams(spotify_streams, spotify_tracks, musicbrainz_ids, musicbrainz_genres, acousticbrainz, acoustid_match_mbids, target):
     if target == Target.TIME:
         print('Counting time streamed...')
     elif target == Target.TRACKS:
@@ -41,6 +41,7 @@ def check_streams(spotify_streams, spotify_tracks, musicbrainz_ids, musicbrainz_
     streams_in_musicbrainz_count = 0
     streams_with_genre_count = 0
     streams_with_acoustic_count = 0
+    with_owned_count = 0
 
     spotify_tracks = {track['uri']: track for track in spotify_tracks}
 
@@ -83,8 +84,14 @@ def check_streams(spotify_streams, spotify_tracks, musicbrainz_ids, musicbrainz_
                 streams_with_acoustic_count += increment(target, stream)
                 break
 
+        for mbid in mbids:
+            if mbid in acoustid_match_mbids:
+                with_owned_count += increment(target, stream)
+                break
+
     print('total', streams_count)
     print('  of tracks', track_streams)
+    print('  of owned tracks', with_owned_count)
     print('  with isrc', streams_with_isrc_count)
     print('  in musicbrainz', streams_in_musicbrainz_count)
     print('  with genre', streams_with_genre_count)
@@ -98,6 +105,7 @@ def main():
     parser.add_argument('--musicbrainz-ids-path')
     parser.add_argument('--musicbrainz-genres-path')
     parser.add_argument('--acousticbrainz-path')
+    parser.add_argument('--acoustid-matches-path')
     args = parser.parse_args()
 
     spotify_streams = read_spotify_streams_json(args.spotify_streams_path)
@@ -105,9 +113,14 @@ def main():
     musicbrainz_ids = read_json(args.musicbrainz_ids_path)
     musicbrainz_genres = read_json(args.musicbrainz_genres_path)
     acousticbrainz = read_json(args.acousticbrainz_path)
+    acoustid = read_json(args.acoustid_matches_path)
+
+    acoustid_match_mbids = set()
+    for match in acoustid['matches']:
+        acoustid_match_mbids.add(match['recording_id'])
 
     for target in Target:
-        check_streams(spotify_streams, spotify_tracks, musicbrainz_ids, musicbrainz_genres, acousticbrainz, target)
+        check_streams(spotify_streams, spotify_tracks, musicbrainz_ids, musicbrainz_genres, acousticbrainz, acoustid_match_mbids, target)
 
 if __name__ == "__main__":
     main()
