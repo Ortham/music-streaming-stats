@@ -1,4 +1,6 @@
-use std::{collections::HashMap, fmt::Display, fs::File, io::BufReader, path::PathBuf, time::SystemTime};
+use std::{
+    collections::HashMap, fmt::Display, fs::File, io::BufReader, path::PathBuf, time::SystemTime,
+};
 
 use clap::{arg, Parser};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -18,12 +20,13 @@ struct Args {
 #[derive(PartialEq, Clone, Copy)]
 struct Isrc([u8; 12]);
 
-impl <'de> serde::Deserialize<'de> for Isrc {
+impl<'de> serde::Deserialize<'de> for Isrc {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: Deserializer<'de> {
+        D: Deserializer<'de>,
+    {
         String::deserialize(deserializer)
-        .map(|s| Isrc(*s.to_uppercase().as_bytes().first_chunk::<12>().unwrap()))
+            .map(|s| Isrc(*s.to_uppercase().as_bytes().first_chunk::<12>().unwrap()))
     }
 }
 
@@ -33,15 +36,17 @@ struct Mbid(u128);
 impl serde::Serialize for Mbid {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer {
+        S: serde::Serializer,
+    {
         String::serialize(&self.to_string(), serializer)
     }
 }
 
-impl <'de> serde::Deserialize<'de> for Mbid {
+impl<'de> serde::Deserialize<'de> for Mbid {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: Deserializer<'de> {
+        D: Deserializer<'de>,
+    {
         String::deserialize(deserializer)
             .map(|s| Mbid(u128::from_str_radix(&s.replace("-", ""), 16).unwrap()))
     }
@@ -50,7 +55,14 @@ impl <'de> serde::Deserialize<'de> for Mbid {
 impl Display for Mbid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let hex = format!("{:032x}", self.0);
-        let with_separators = format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..]);
+        let with_separators = format!(
+            "{}-{}-{}-{}-{}",
+            &hex[..8],
+            &hex[8..12],
+            &hex[12..16],
+            &hex[16..20],
+            &hex[20..]
+        );
 
         write!(f, "{}", with_separators)
     }
@@ -86,7 +98,7 @@ struct Recording {
     mbid: Mbid,
     track_name: String,
     isrcs: Vec<Isrc>,
-    artist_names: Vec<String>
+    artist_names: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -101,22 +113,28 @@ fn normalise_recordings(recordings: Vec<RecordingIsrcArtist>) -> Vec<Recording> 
         let track_name = recording.track_name.to_lowercase();
         let artist_name = recording.artist_name.to_lowercase();
 
-        recordings_by_mbid.entry(recording.mbid).and_modify(|r| {
-            if r.track_name != track_name {
-                panic!("Expected track name {}, got {} for recording {}", r.track_name, track_name, r.mbid);
-            }
+        recordings_by_mbid
+            .entry(recording.mbid)
+            .and_modify(|r| {
+                if r.track_name != track_name {
+                    panic!(
+                        "Expected track name {}, got {} for recording {}",
+                        r.track_name, track_name, r.mbid
+                    );
+                }
 
-            if let Some(isrc) = recording.isrc {
-                r.isrcs.push(isrc);
-            }
+                if let Some(isrc) = recording.isrc {
+                    r.isrcs.push(isrc);
+                }
 
-            r.artist_names.push(artist_name.clone());
-        }).or_insert(Recording {
-            mbid: recording.mbid,
-            track_name,
-            isrcs: recording.isrc.into_iter().collect(),
-            artist_names: vec![artist_name.clone()]
-        });
+                r.artist_names.push(artist_name.clone());
+            })
+            .or_insert(Recording {
+                mbid: recording.mbid,
+                track_name,
+                isrcs: recording.isrc.into_iter().collect(),
+                artist_names: vec![artist_name.clone()],
+            });
     }
 
     recordings_by_mbid.into_values().collect()
@@ -141,10 +159,7 @@ fn normalise_tracks(tracks: Vec<SpotifyTrack>) -> Vec<SpotifyTrack> {
         .collect()
 }
 
-fn match_track(
-    recording: &Recording,
-    track: &SpotifyTrack,
-) -> bool {
+fn match_track(recording: &Recording, track: &SpotifyTrack) -> bool {
     if !recording.isrcs.is_empty() {
         if let Some(isrc) = track.external_ids.isrc {
             if recording.isrcs.contains(&isrc) {
@@ -154,14 +169,16 @@ fn match_track(
     }
 
     // if !track.name.contains(&recording.track_name) && !recording.track_name.contains(&track.name) {
-    if track.name != recording.track_name {
+        if track.name != recording.track_name {
         return false;
     }
 
-        for track_artist in &track.artists {
-            for recording_artist_name in &recording.artist_names {
-            // if artist.name.contains(&recording.artist_name) || recording.artist_name.contains(&artist.name) {
-            if track_artist.name == *recording_artist_name {
+    for track_artist in &track.artists {
+        for recording_artist_name in &recording.artist_names {
+            // if track_artist.name.contains(recording_artist_name)
+                // || recording_artist_name.contains(&track_artist.name)
+            // {
+                if track_artist.name == *recording_artist_name {
                 return true;
             }
         }
@@ -220,7 +237,10 @@ fn find_matches_par<'a, 'b>(
     matches
 }
 
-fn process_results<'a, 'b>(tracks: &'a [SpotifyTrack], matched: &[(&'a str, &'b Mbid)]) -> Results<'a, 'b> {
+fn process_results<'a, 'b>(
+    tracks: &'a [SpotifyTrack],
+    matched: &[(&'a str, &'b Mbid)],
+) -> Results<'a, 'b> {
     let mut mbids_by_spotify_uri: HashMap<_, Vec<_>> = HashMap::new();
 
     for (key, value) in matched {
@@ -266,7 +286,10 @@ fn main() {
     let tracks = normalise_tracks(tracks);
     println!("Left with {} tracks", tracks.len());
 
-    println!("Preparing data took {} ms", start.elapsed().unwrap().as_millis());
+    println!(
+        "Preparing data took {} ms",
+        start.elapsed().unwrap().as_millis()
+    );
 
     let start = SystemTime::now();
 
