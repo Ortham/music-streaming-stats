@@ -23,7 +23,7 @@ impl <'de> serde::Deserialize<'de> for Isrc {
     where
         D: Deserializer<'de> {
         String::deserialize(deserializer)
-            .map(|s| Isrc(*s.to_uppercase().as_bytes().first_chunk::<12>().unwrap()))
+        .map(|s| Isrc(*s.to_uppercase().as_bytes().first_chunk::<12>().unwrap()))
     }
 }
 
@@ -245,17 +245,19 @@ fn process_results<'a, 'b>(tracks: &'a [SpotifyTrack], matched: &[(&'a str, &'b 
 fn main() {
     let args = Args::parse();
 
-    println!("Reading recordings...");
-    let f = File::open(args.recordings_path).unwrap();
-    let reader = BufReader::new(f);
-    let recordings: Vec<RecordingIsrcArtist> = serde_json::from_reader(reader).unwrap();
-    println!("Loaded {} recordings", recordings.len());
-
     println!("Reading Spotify tracks metadata...");
     let f = File::open(args.spotify_tracks_metadata_path).unwrap();
     let reader = BufReader::new(f);
     let tracks: Vec<SpotifyTrack> = serde_json::from_reader(reader).unwrap();
     println!("Loaded {} Spotify tracks", tracks.len());
+
+    let start = SystemTime::now();
+
+    println!("Reading recordings...");
+    let f = File::open(args.recordings_path).unwrap();
+    let reader = BufReader::new(f);
+    let recordings: Vec<RecordingIsrcArtist> = serde_json::from_reader(reader).unwrap();
+    println!("Loaded {} recordings", recordings.len());
 
     println!("Normalising recordings...");
     let recordings = normalise_recordings(recordings);
@@ -263,6 +265,8 @@ fn main() {
     println!("Normalising tracks...");
     let tracks = normalise_tracks(tracks);
     println!("Left with {} tracks", tracks.len());
+
+    println!("Preparing data took {} ms", start.elapsed().unwrap().as_millis());
 
     let start = SystemTime::now();
 
