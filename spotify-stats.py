@@ -386,6 +386,16 @@ def write_streams_to_postgres(postgres_connection, streams):
                     incognito_mode BOOLEAN NOT NULL)
                 """)
 
+        cur.execute("""
+                    CREATE INDEX IF NOT EXISTS spotify_streams_track_uri_idx
+                        ON spotify_streams (track_uri)
+                    """)
+
+        cur.execute("""
+                    CREATE INDEX IF NOT EXISTS spotify_streams_timestamp_idx
+                        ON spotify_streams (timestamp)
+                    """)
+
         cur.execute("TRUNCATE TABLE spotify_streams")
 
         print('Writing streams data to postgres...')
@@ -438,6 +448,11 @@ def write_albums_metadata_to_postgres(postgres_connection, tracks_metadata):
                     album_type TEXT)
                 """)
 
+        cur.execute("""
+                    CREATE INDEX IF NOT EXISTS spotify_albums_spotify_id_idx
+                        ON spotify_albums (spotify_id)
+                    """)
+
         cur.execute("TRUNCATE TABLE spotify_albums")
 
         print('Writing albums data to postgres...')
@@ -468,6 +483,16 @@ def write_tracks_metadata_to_postgres(postgres_connection, tracks_metadata):
                     popularity INTEGER)
                 """)
 
+        cur.execute("""
+                    CREATE INDEX IF NOT EXISTS spotify_tracks_album_id_idx
+                        ON spotify_tracks (album_id)
+                    """)
+
+        cur.execute("""
+                    CREATE INDEX IF NOT EXISTS spotify_tracks_spotify_uri_idx
+                        ON spotify_tracks (spotify_uri)
+                    """)
+
         cur.execute("TRUNCATE TABLE spotify_tracks")
 
         print('Writing tracks data to postgres...')
@@ -492,6 +517,16 @@ def write_musicbrainz_ids_to_postgres(postgres_connection, mb_metadata):
                     musicbrainz_id UUID NOT NULL)
                 """)
 
+        cur.execute("""
+                    CREATE INDEX IF NOT EXISTS musicbrainz_recordings_spotify_uri_idx
+                        ON musicbrainz_recordings (spotify_uri)
+                    """)
+
+        cur.execute("""
+                    CREATE INDEX IF NOT EXISTS musicbrainz_recordings_musicbrainz_id_idx
+                        ON musicbrainz_recordings (musicbrainz_id)
+                    """)
+
         cur.execute("TRUNCATE TABLE musicbrainz_recordings")
 
         print('Writing MusicBrainz ID data to postgres...')
@@ -512,6 +547,11 @@ def write_musicbrainz_tags_to_postgres(postgres_connection, tags_by_recording_id
                     count INTEGER,
                     musicbrainz_genre_id UUID)
                 """)
+
+        cur.execute("""
+                    CREATE INDEX IF NOT EXISTS musicbrainz_recording_tags_recording_id_idx
+                        ON musicbrainz_recording_tags (recording_id)
+                    """)
 
         cur.execute("TRUNCATE TABLE musicbrainz_recording_tags")
 
@@ -547,6 +587,11 @@ def write_acousticbrainz_metadata_to_postgres(postgres_connection, metadata_by_m
                     key_key TEXT,
                     key_scale TEXT)
                 """)
+
+        cur.execute("""
+                    CREATE INDEX IF NOT EXISTS acousticbrainz_recording_id_idx
+                        ON acousticbrainz (recording_id)
+                    """)
 
         cur.execute("TRUNCATE TABLE acousticbrainz")
 
