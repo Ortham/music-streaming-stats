@@ -637,6 +637,28 @@ def write_acousticbrainz_metadata_to_postgres(postgres_connection, metadata_by_m
 
     postgres_connection.commit()
 
+def write_owned_tracks_to_postgres(postgres_connection, acoustid_matches):
+    with postgres_connection.cursor() as cur:
+        cur.execute("""
+                CREATE TABLE IF NOT EXISTS owned_recordings (
+                    id serial PRIMARY KEY,
+                    recording_id UUID NOT NULL,
+                    score DOUBLE PRECISION NOT NULL)
+                """)
+
+        cur.execute("""
+                    CREATE INDEX IF NOT EXISTS owned_recordings_recording_id_idx
+                        ON owned_recordings (recording_id)
+                    """)
+
+        cur.execute("TRUNCATE TABLE owned_recordings")
+
+        print('Writing AcoustID data to postgres...')
+        for match in acoustid_matches:
+            cur.execute('INSERT INTO owned_recordings (recording_id, score) VALUES (%s, %s)', (match['recording_id'], match['score']))
+
+    postgres_connection.commit()
+
 def main():
     parser = argparse.ArgumentParser(description='Supply the path to a directory of JSON files containing your Spotify extended streaming history.')
     parser.add_argument('--output-path')
@@ -654,11 +676,13 @@ def main():
     parser.add_argument('--acousticbrainz-metadata-path')
     parser.add_argument('--musicbrainz-ids-path')
     parser.add_argument('--musicbrainz-tags-path')
+    parser.add_argument('--acoustid-matches-path')
     parser.add_argument('input_dir_path')
     args = parser.parse_args()
 
     streams = parse_input_json(args.input_dir_path)
 
+    tracks_metadata = None
     if args.spotify_client_id and args.spotify_client_secret:
         access_token = get_spotify_access_token(args.spotify_client_id, args.spotify_client_secret)
         tracks_metadata = get_all_tracks_metadata(streams, access_token, args.spotify_tracks_metadata_path)
@@ -720,6 +744,10 @@ def main():
             if args.acousticbrainz_metadata_path:
                 ab_metadata = read_json(args.acousticbrainz_metadata_path)
                 write_acousticbrainz_metadata_to_postgres(postgres_connection, ab_metadata)
+
+            if args.acoustid_matches_path:
+                content = read_json(args.acoustid_matches_path)
+                write_owned_tracks_to_postgres(postgres_connection, content['matches'])
 
 
 if __name__ == "__main__":
