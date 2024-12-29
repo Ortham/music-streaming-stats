@@ -68,7 +68,7 @@ impl Display for Mbid {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct SpotifyExternalIds {
     isrc: Option<Isrc>,
 }
@@ -107,7 +107,7 @@ struct Results<'a, 'b> {
     unmapped_track_uris: Vec<&'a str>,
 }
 
-fn normalise_recordings(recordings: Vec<RecordingIsrcArtist>) -> Vec<Recording> {
+fn normalise_recordings(recordings: &[RecordingIsrcArtist]) -> Vec<Recording> {
     let mut recordings_by_mbid: HashMap<Mbid, Recording> = HashMap::new();
     for recording in recordings {
         let track_name = recording.track_name.to_lowercase();
@@ -140,7 +140,11 @@ fn normalise_recordings(recordings: Vec<RecordingIsrcArtist>) -> Vec<Recording> 
     recordings_by_mbid.into_values().collect()
 }
 
-fn normalise_tracks(tracks: Vec<SpotifyTrack>) -> Vec<SpotifyTrack> {
+fn normalise_recordings_par(recordings: &[RecordingIsrcArtist]) -> Vec<Recording> {
+    execute_par(recordings, normalise_recordings)
+}
+
+fn normalise_tracks(tracks: &[SpotifyTrack]) -> Vec<SpotifyTrack> {
     tracks
         .into_iter()
         .filter(|t| !t.name.is_empty())
@@ -148,15 +152,20 @@ fn normalise_tracks(tracks: Vec<SpotifyTrack>) -> Vec<SpotifyTrack> {
             name: t.name.to_lowercase(),
             artists: t
                 .artists
-                .into_iter()
+                .iter()
                 .filter(|a| !a.name.is_empty())
                 .map(|a| SpotifyArtist {
                     name: a.name.to_lowercase(),
                 })
                 .collect(),
-            ..t
+            uri: t.uri.clone(),
+            external_ids: t.external_ids.clone()
         })
         .collect()
+}
+
+fn normalise_tracks_par(tracks: &[SpotifyTrack]) -> Vec<SpotifyTrack> {
+    execute_par(tracks, normalise_tracks)
 }
 
 fn match_track(recording: &Recording, track: &SpotifyTrack) -> bool {
@@ -204,15 +213,15 @@ fn find_matches<'a, 'b>(
     matches
 }
 
-fn find_matches_par<'a, 'b>(
-    recordings: &'a [Recording],
-    tracks: &'b [SpotifyTrack],
-) -> Vec<(&'b str, &'a Mbid)> {
+fn execute_par<'a, T: Sync, O: Send>(
+    items: &'a [T],
+    function: impl Fn(&'a [T]) -> Vec<O> + Send + Copy
+) -> Vec<O> {
     let num_threads = usize::from(std::thread::available_parallelism().unwrap());
 
-    let recordings_per_thread = (recordings.len() / num_threads) + 1;
+    let items_per_thread = (items.len() / num_threads) + 1;
 
-    let mut iter = recordings.chunks(recordings_per_thread);
+    let mut iter = items.chunks(items_per_thread);
     let mut matches = vec![];
 
     let (sender, receiver) = std::sync::mpsc::channel();
@@ -222,7 +231,7 @@ fn find_matches_par<'a, 'b>(
                 let sender = sender.clone();
 
                 s.spawn(move || {
-                    let matches = find_matches(chunk, tracks);
+                    let matches = function(chunk);
 
                     sender.send(matches).unwrap();
                 });
@@ -235,6 +244,13 @@ fn find_matches_par<'a, 'b>(
     });
 
     matches
+}
+
+fn find_matches_par<'a, 'b>(
+    recordings: &'a [Recording],
+    tracks: &'b [SpotifyTrack],
+) -> Vec<(&'b str, &'a Mbid)> {
+    execute_par(recordings, |r| find_matches(r, tracks))
 }
 
 fn process_results<'a, 'b>(
@@ -279,11 +295,18 @@ fn main() {
     let recordings: Vec<RecordingIsrcArtist> = serde_json::from_reader(reader).unwrap();
     println!("Loaded {} recordings", recordings.len());
 
+    println!(
+        "Loading recordings took {} ms",
+        start.elapsed().unwrap().as_millis()
+    );
+
+    let start = SystemTime::now();
+
     println!("Normalising recordings...");
-    let recordings = normalise_recordings(recordings);
+    let recordings = normalise_recordings_par(&recordings);
 
     println!("Normalising tracks...");
-    let tracks = normalise_tracks(tracks);
+    let tracks = normalise_tracks_par(&tracks);
     println!("Left with {} tracks", tracks.len());
 
     println!(
