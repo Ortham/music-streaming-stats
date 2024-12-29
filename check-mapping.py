@@ -91,11 +91,11 @@ def check_streams(spotify_streams, spotify_tracks, musicbrainz_ids, musicbrainz_
 
     print('total', streams_count)
     print('  of tracks', track_streams)
-    print('  of owned tracks', with_owned_count)
-    print('  with isrc', streams_with_isrc_count)
-    print('  in musicbrainz', streams_in_musicbrainz_count)
-    print('  with genre', streams_with_genre_count)
+    print('  with ISRCs', streams_with_isrc_count)
+    print('  with MBIDs', streams_in_musicbrainz_count)
+    print('  with tags', streams_with_genre_count)
     print('  with acoustic metadata', streams_with_acoustic_count)
+    print('  of owned tracks', with_owned_count)
     print()
 
 def main():
