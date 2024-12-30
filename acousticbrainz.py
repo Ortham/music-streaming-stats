@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import csv
 from time import sleep
 
 from helpers import read_json, write_json
@@ -8,6 +9,15 @@ from helpers import read_json, write_json
 import requests
 
 max_recordings_per_request = 25
+
+def parse_csv(file_path):
+    rows = []
+    with open(file_path, encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rows.append(row)
+
+    return rows
 
 def get_from_acousticbrainz(url, params):
     retry_after_header = 'X-RateLimit-Reset-In'
@@ -104,10 +114,17 @@ def reduce_metadata(recording_metadata):
             }
         }
 
+def any_in(needles, haystack):
+    for needle in needles:
+        if needle in haystack:
+            return True
+
+    return False
 
 def main():
     parser = argparse.ArgumentParser(description='Supply the path to a JSON file containing $.mbids_by_spotify_uri')
     parser.add_argument('--input-path')
+    parser.add_argument('--low-level-csv-path')
     parser.add_argument('--output-path')
     parser.add_argument('--reduce-metadata', action='store_const', const=True)
     args = parser.parse_args()
@@ -127,19 +144,42 @@ def main():
     recordings_audio_metadata = {}
     try:
         recordings_audio_metadata = read_json(args.output_path)
+        print(f'Acoustic metadata already fetched for {len(recordings_audio_metadata)} recording MBIDs')
     except Exception as e:
         print(f'Could not read file at {args.output_path}, will fetch audio metadata for all recordings.')
         pass
 
     input_data = read_json(args.input_path)
+
+    low_level_mbids = set()
+    if args.low_level_csv_path:
+        low_level_data = parse_csv(args.low_level_csv_path)
+        low_level_mbids = set(r['mbid'] for r in low_level_data)
+        print(f'Found low-level acoustic metadata for {len(low_level_mbids)} MBIDs')
+
+    unique_mbids = set()
     recording_ids = set()
-    for mbids in input_data['mbids_by_spotify_uri'].values():
+    for uri, mbids in input_data['mbids_by_spotify_uri'].items():
+        for mbid in mbids:
+            unique_mbids.add(mbid)
+
         for mbid in mbids:
             if mbid not in recordings_audio_metadata:
-                recording_ids.add(mbid)
+                if low_level_mbids and mbid in low_level_mbids:
+                    recording_ids.add(mbid)
+                    # No need to fetch for other MBIDs for this track, since we know this will have data.
+                    break
+                elif not low_level_mbids:
+                    # We don't know if this will have data or not, so query it.
+                    recording_ids.add(mbid)
+
+                # No point querying the MBID if it's known not to have data.
+
+        if low_level_mbids and not any_in(mbids, recording_ids):
+            print(f'Could not find low-level metadata for URI {uri}')
 
     recording_ids = list(recording_ids)
-    print(f'Fetching audio metadata for {len(recording_ids)} recordings...')
+    print(f'Fetching audio metadata for {len(recording_ids)} of {len(unique_mbids)} recordings...')
 
     i = 0
     while i < len(recording_ids):
