@@ -48,7 +48,7 @@ def get_musicbrainz_recording_ids(postgres_connection, track):
 
 def map_track(track):
     artist_names = [a['name'].lower() for a in track['artists'] if a['name']]
-    isrc = track['external_ids']['isrc'].encode() if 'isrc' in track['external_ids'] else None
+    isrc = track['external_ids']['isrc'].upper().encode() if 'isrc' in track['external_ids'] else None
 
     return (track['uri'], isrc, track['name'].lower(), artist_names)
 
