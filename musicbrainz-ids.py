@@ -128,26 +128,35 @@ def main():
     unmapped_track_uris = []
 
     if args.recordings_path:
+        start = datetime.now()
+
         print('Loading recordings...')
         recordings = read_json(args.recordings_path)
 
+        print('Loading data took', datetime.now() - start)
+
+        start = datetime.now()
+
         recordings = [map_recording(r) for r in recordings]
         tracks = [map_track(t) for t in tracks_metadata if t['name']]
+
+        print('Preparing data took', datetime.now() - start)
 
         start = datetime.now()
 
         matches = match_tracks_par(recordings, tracks)
 
-        print('Elapsed time', datetime.now() - start)
-        print(f'Found {len(matches)} matches')
+        print('Matching took', datetime.now() - start)
 
         for [uri, id] in matches:
             if uri in recording_ids_by_uri:
-                recording_ids_by_uri[uri].append(id)
+                recording_ids_by_uri[uri].add(id)
             else:
-                recording_ids_by_uri[uri] = [id]
+                recording_ids_by_uri[uri] = set([id])
 
-            recording_ids.append(id)
+        for uri in recording_ids_by_uri:
+            recording_ids.extend(recording_ids_by_uri[uri])
+            recording_ids_by_uri[uri] = list(recording_ids_by_uri[uri])
     else:
         postgres_connection = connect_to_postgres(args.postgresql_host,
                                                     args.postgresql_port,
