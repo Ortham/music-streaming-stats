@@ -1,5 +1,10 @@
 use std::{
-    collections::HashMap, fmt::Display, fs::File, io::BufReader, path::PathBuf, time::SystemTime,
+    collections::{HashMap, HashSet},
+    fmt::Display,
+    fs::File,
+    io::BufReader,
+    path::PathBuf,
+    time::SystemTime,
 };
 
 use clap::{arg, Parser};
@@ -86,19 +91,12 @@ struct SpotifyArtist {
     name: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct RecordingIsrcArtist {
     isrc: Option<Isrc>,
     mbid: Mbid,
     track_name: String,
     artist_name: String,
-}
-
-struct Recording {
-    mbid: Mbid,
-    track_name: String,
-    isrcs: Vec<Isrc>,
-    artist_names: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -107,46 +105,29 @@ struct Results<'a, 'b> {
     unmapped_track_uris: Vec<&'a str>,
 }
 
-fn normalise_recordings(recordings: &[RecordingIsrcArtist]) -> Vec<Recording> {
-    let mut recordings_by_mbid: HashMap<Mbid, Recording> = HashMap::new();
-    for recording in recordings {
-        let track_name = recording.track_name.to_lowercase();
-        let artist_name = recording.artist_name.to_lowercase();
+fn normalise_recording(recording: &RecordingIsrcArtist) -> RecordingIsrcArtist {
+    let track_name = recording.track_name.to_lowercase();
+    let artist_name = recording.artist_name.to_lowercase();
 
-        recordings_by_mbid
-            .entry(recording.mbid)
-            .and_modify(|r| {
-                if r.track_name != track_name {
-                    panic!(
-                        "Expected track name {}, got {} for recording {}",
-                        r.track_name, track_name, r.mbid
-                    );
-                }
-
-                if let Some(isrc) = recording.isrc {
-                    r.isrcs.push(isrc);
-                }
-
-                r.artist_names.push(artist_name.clone());
-            })
-            .or_insert(Recording {
-                mbid: recording.mbid,
-                track_name,
-                isrcs: recording.isrc.into_iter().collect(),
-                artist_names: vec![artist_name.clone()],
-            });
+    RecordingIsrcArtist {
+        mbid: recording.mbid,
+        track_name,
+        isrc: recording.isrc,
+        artist_name,
     }
-
-    recordings_by_mbid.into_values().collect()
 }
 
-fn normalise_recordings_par(recordings: &[RecordingIsrcArtist]) -> Vec<Recording> {
+fn normalise_recordings(recordings: &[RecordingIsrcArtist]) -> Vec<RecordingIsrcArtist> {
+    recordings.iter().map(normalise_recording).collect()
+}
+
+fn normalise_recordings_par(recordings: &[RecordingIsrcArtist]) -> Vec<RecordingIsrcArtist> {
     execute_par(recordings, normalise_recordings)
 }
 
 fn normalise_tracks(tracks: &[SpotifyTrack]) -> Vec<SpotifyTrack> {
     tracks
-        .into_iter()
+        .iter()
         .filter(|t| !t.name.is_empty())
         .map(|t| SpotifyTrack {
             name: t.name.to_lowercase(),
@@ -159,37 +140,27 @@ fn normalise_tracks(tracks: &[SpotifyTrack]) -> Vec<SpotifyTrack> {
                 })
                 .collect(),
             uri: t.uri.clone(),
-            external_ids: t.external_ids.clone()
+            external_ids: t.external_ids.clone(),
         })
         .collect()
 }
 
-fn normalise_tracks_par(tracks: &[SpotifyTrack]) -> Vec<SpotifyTrack> {
-    execute_par(tracks, normalise_tracks)
-}
-
-fn match_track(recording: &Recording, track: &SpotifyTrack) -> bool {
-    if !recording.isrcs.is_empty() {
-        if let Some(isrc) = track.external_ids.isrc {
-            if recording.isrcs.contains(&isrc) {
-                return true;
-            }
-        }
+fn match_track(recording: &RecordingIsrcArtist, track: &SpotifyTrack) -> bool {
+    if recording.isrc.is_some() && track.external_ids.isrc == recording.isrc {
+        return true;
     }
 
     // if !track.name.contains(&recording.track_name) && !recording.track_name.contains(&track.name) {
-        if track.name != recording.track_name {
+    if track.name != recording.track_name {
         return false;
     }
 
     for track_artist in &track.artists {
-        for recording_artist_name in &recording.artist_names {
-            // if track_artist.name.contains(recording_artist_name)
-                // || recording_artist_name.contains(&track_artist.name)
-            // {
-                if track_artist.name == *recording_artist_name {
-                return true;
-            }
+        // if track_artist.name.contains(&recording.artist_name)
+        //     || recording.artist_name.contains(&track_artist.name)
+        // {
+        if track_artist.name == recording.artist_name {
+            return true;
         }
     }
 
@@ -197,7 +168,7 @@ fn match_track(recording: &Recording, track: &SpotifyTrack) -> bool {
 }
 
 fn find_matches<'a, 'b>(
-    recordings: &'a [Recording],
+    recordings: &'a [RecordingIsrcArtist],
     tracks: &'b [SpotifyTrack],
 ) -> Vec<(&'b str, &'a Mbid)> {
     let mut matches = Vec::new();
@@ -213,41 +184,45 @@ fn find_matches<'a, 'b>(
     matches
 }
 
-fn execute_par<'a, T: Sync, O: Send>(
+fn execute_par<'a, T: Sync, O: Clone + Send>(
     items: &'a [T],
-    function: impl Fn(&'a [T]) -> Vec<O> + Send + Copy
+    function: impl Fn(&'a [T]) -> Vec<O> + Send + Copy,
 ) -> Vec<O> {
     let num_threads = usize::from(std::thread::available_parallelism().unwrap());
 
     let items_per_thread = (items.len() / num_threads) + 1;
 
     let mut iter = items.chunks(items_per_thread);
-    let mut matches = vec![];
+
+    // Collect into this to retain total order. It's not really necessary, but
+    // helps give consistent results when testing with a sub-slice of input data.
+    let mut thread_results = vec![Vec::new(); num_threads];
 
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::scope(|s| {
-        for _ in 0..num_threads {
+        for i in 0..num_threads {
             if let Some(chunk) = iter.next() {
                 let sender = sender.clone();
 
                 s.spawn(move || {
                     let matches = function(chunk);
 
-                    sender.send(matches).unwrap();
+                    sender.send((i, matches)).unwrap();
                 });
             }
         }
 
         for _ in 0..num_threads {
-            matches.append(&mut receiver.recv().unwrap());
+            let (i, results) = receiver.recv().unwrap();
+            thread_results[i] = results;
         }
     });
 
-    matches
+    thread_results.into_iter().flatten().collect()
 }
 
 fn find_matches_par<'a, 'b>(
-    recordings: &'a [Recording],
+    recordings: &'a [RecordingIsrcArtist],
     tracks: &'b [SpotifyTrack],
 ) -> Vec<(&'b str, &'a Mbid)> {
     execute_par(recordings, |r| find_matches(r, tracks))
@@ -306,7 +281,7 @@ fn main() {
     let recordings = normalise_recordings_par(&recordings);
 
     println!("Normalising tracks...");
-    let tracks = normalise_tracks_par(&tracks);
+    let tracks = normalise_tracks(&tracks);
     println!("Left with {} tracks", tracks.len());
 
     println!(
@@ -316,16 +291,25 @@ fn main() {
 
     let start = SystemTime::now();
 
-    let matched = find_matches_par(&recordings, &tracks);
+    let match_results = find_matches_par(&recordings, &tracks);
 
-    println!("Found: {} matches", matched.len());
-    println!("Took {} ms", start.elapsed().unwrap().as_millis());
+    println!("Matching took {} ms", start.elapsed().unwrap().as_millis());
 
-    let results = process_results(&tracks, &matched);
+    let results = process_results(&tracks, &match_results);
+
+    let unique_matches_count = match_results.iter().collect::<HashSet<_>>().len();
+
+    let unique_mbids_count = match_results
+        .iter()
+        .map(|(_, mbid)| mbid.0)
+        .collect::<HashSet<_>>()
+        .len();
 
     println!(
-        "Mapped {} tracks, {} tracks unmapped",
+        "Mapped {} tracks to {} recordings ({} unique), leaving {} unmapped tracks",
         results.mbids_by_spotify_uri.len(),
+        unique_matches_count,
+        unique_mbids_count,
         results.unmapped_track_uris.len()
     );
 
