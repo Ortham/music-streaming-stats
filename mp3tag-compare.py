@@ -50,6 +50,7 @@ def main():
     parser.add_argument('--mp3tag-lookup-export-path')
     parser.add_argument('--acoustid-matches-path')
     parser.add_argument('--acoustid-matches-base-path')
+    parser.add_argument('--musicbrainz-ids-path')
     parser.add_argument('--musicbrainz-tags-path')
     parser.add_argument('--acousticbrainz-path')
     args = parser.parse_args()
@@ -68,8 +69,17 @@ def main():
 
     unmatched_relative_paths = set(os.path.relpath(p, start=args.acoustid_matches_base_path) for p in match_data['unmatched_paths'])
 
+    musicbrainz_ids = read_json(args.musicbrainz_ids_path)
     musicbrainz_tags = read_json(args.musicbrainz_tags_path)
     acousticbrainz = read_json(args.acousticbrainz_path)
+
+    musicbrainz_ids = set(m for u in musicbrainz_ids['mbids_by_spotify_uri'] for m in u)
+
+    mbids_with_missing_matches = set()
+    mbids_with_missing_tags = set()
+    mbids_with_missing_acoustic_metadata = set()
+    mbids_for_unmatched_files = set()
+    mbids_for_unprocessed_files = set()
 
     for lookup_entry in lookup_data.values():
         mbid = lookup_entry['MBID']
@@ -80,20 +90,30 @@ def main():
                 matches = matched_relative_paths[rel_path]
                 if mbid not in [m['recording_id'] for m in matches]:
                     print(f'The AcoustID matches for {rel_path} do not include {mbid}')
+                    mbids_with_missing_matches.add(mbid)
 
                     lookup_only_tags = get_lookup_only_tags(mbid, matches, musicbrainz_tags)
                     if lookup_only_tags:
                         print('The missing MBID leads to the following missing tags', lookup_only_tags)
+                        mbids_with_missing_tags.add(mbid)
 
                     if mbid in acousticbrainz and not matches_have_acoustic_metadata(matches, acousticbrainz):
                         print('The missing MBID leads to missing acoustic metadata')
+                        mbids_with_missing_acoustic_metadata.add(mbid)
 
             elif rel_path in unmatched_relative_paths:
-                print(f'Cannot find {mbid} for {rel_path} in matched MBIDs')
-            else:
-                print(f'Cannot find {mbid} for {rel_path} in matched MBIDs or unmatched paths')
+                print(f'Cannot find {mbid} for {rel_path} because AcoustID could not match the path')
+                mbids_for_unmatched_files.add(mbid)
+            elif mbid in musicbrainz_ids:
+                print(f'Cannot find {mbid} for {rel_path} because the path was not processed')
+                mbids_for_unprocessed_files.add(mbid)
 
     print(f'Processed {len(lookup_data)} tracks')
+    print(f"{len(mbids_with_missing_matches)} files had an MBID found by lookup that wasn't found by AcoustID scan. {len(mbids_with_missing_matches & musicbrainz_ids)} match to Spotify tracks")
+    print(f'{len(mbids_with_missing_tags)} files missed out on tags due to a missing MBID. {len(mbids_with_missing_tags & musicbrainz_ids)} match to Spotify tracks')
+    print(f'{len(mbids_with_missing_acoustic_metadata)} files missed out on acoustic metadata due to a missing MBID. {len(mbids_with_missing_acoustic_metadata & musicbrainz_ids)} match to Spotify tracks')
+    print(f"{len(mbids_for_unmatched_files)} files had an MBID found by lookup but weren't recognised by AcoustID. {len(mbids_for_unmatched_files & musicbrainz_ids)} match to Spotify tracks")
+    print(f'{len(mbids_for_unprocessed_files)} files have not been processed by acoustid-match.py. {len(mbids_for_unprocessed_files & musicbrainz_ids)} match to Spotify tracks')
 
 if __name__ == "__main__":
     main()
