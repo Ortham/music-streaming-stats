@@ -392,17 +392,18 @@ def main():
     parser.add_argument('--spotify-client-id')
     parser.add_argument('--spotify-client-secret')
     parser.add_argument('--spotify-tracks-metadata-path')
+    parser.add_argument('--spotify-streaming-history-path')
     parser.add_argument('--acousticbrainz-metadata-path')
     parser.add_argument('--musicbrainz-ids-path')
     parser.add_argument('--musicbrainz-tags-path')
     parser.add_argument('--acoustid-matches-path')
-    parser.add_argument('input_dir_path')
     args = parser.parse_args()
 
-    streams = read_spotify_streaming_history(args.input_dir_path)
+    if args.spotify_streaming_history_path:
+        streams = read_spotify_streaming_history(args.spotify_streaming_history_path)
 
     tracks_metadata = None
-    if args.spotify_client_id and args.spotify_client_secret:
+    if streams and args.spotify_client_id and args.spotify_client_secret:
         access_token = get_spotify_access_token(args.spotify_client_id, args.spotify_client_secret)
         tracks_metadata = get_all_tracks_metadata(streams, access_token, args.spotify_tracks_metadata_path)
     elif args.spotify_tracks_metadata_path:
@@ -417,7 +418,8 @@ def main():
                                                   args.postgresql_password)
 
         with postgres_connection:
-            write_streams_to_postgres(postgres_connection, streams)
+            if streams:
+                write_streams_to_postgres(postgres_connection, streams)
 
             if tracks_metadata:
                 write_albums_metadata_to_postgres(postgres_connection, tracks_metadata)
