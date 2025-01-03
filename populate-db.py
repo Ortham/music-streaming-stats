@@ -2,83 +2,8 @@
 
 import argparse
 from datetime import datetime, timezone
-from time import sleep
 
-import requests
-
-from helpers import read_json, write_json, connect_to_postgres, read_spotify_streaming_history
-
-max_tracks_per_request = 50
-
-def get_spotify_access_token(spotify_client_id, spotify_client_secret):
-    url = 'https://accounts.spotify.com/api/token'
-    data = {
-        'grant_type': 'client_credentials',
-        'client_id': spotify_client_id,
-        'client_secret': spotify_client_secret
-    }
-    response = requests.post(url, data)
-    response.raise_for_status()
-
-    return response.json()['access_token']
-
-def get_track_ids(streams):
-    track_ids = set()
-    for stream in streams:
-        track_uri = stream['spotify_track_uri']
-        if track_uri:
-            track_id = track_uri.split(':')[-1]
-            track_ids.add(track_id)
-
-    return list(track_ids)
-
-def get_from_spotify(url, track_ids, spotify_access_token):
-    if len(track_ids) > max_tracks_per_request:
-        raise ValueError('Trying to get audio features for too many tracks at once')
-
-    params = {'ids': ','.join(track_ids)}
-    headers = {'Authorization': f'Bearer {spotify_access_token}'}
-
-    response = requests.get(url, params=params, headers=headers)
-
-    if response.status_code == 429 and response.headers['Retry-After']:
-        retry_after_secs = response.headers['Retry-After']
-        print(f'Hit Spotify API rate limit, retrying request after {retry_after_secs} seconds...')
-        sleep(retry_after_secs)
-        return get_from_spotify(url, track_ids, spotify_access_token)
-    else:
-        try:
-            response.raise_for_status()
-        except BaseException as e:
-            print(response.json())
-            raise e
-
-    return response.json()
-
-def get_tracks_metadata(track_ids, spotify_access_token):
-    # <https://developer.spotify.com/documentation/web-api/reference/get-several-tracks>
-    url = 'https://api.spotify.com/v1/tracks'
-
-    return get_from_spotify(url, track_ids, spotify_access_token)['tracks']
-
-def get_all_tracks_metadata(streams, spotify_access_token, output_file_path):
-    track_ids = get_track_ids(streams)
-
-    all_tracks_metadata = []
-    i = 0
-    while i < len(track_ids):
-        print(f'Getting metadata for tracks {i} to {i + max_tracks_per_request}...')
-        id_batch = track_ids[i:i + max_tracks_per_request] if i + max_tracks_per_request < len(track_ids) else track_ids[i:]
-        tracks_metadata = get_tracks_metadata(id_batch, spotify_access_token)
-
-        all_tracks_metadata.extend(tracks_metadata)
-        if output_file_path:
-            # Write after each request to avoid redoing requests if one fails.
-            write_json(output_file_path, all_tracks_metadata)
-
-        i += max_tracks_per_request
-
-    return all_tracks_metadata
+from helpers import read_json, connect_to_postgres, read_spotify_streaming_history
 
 def write_streams_to_postgres(postgres_connection, streams):
     with postgres_connection.cursor() as cur:
@@ -444,17 +369,13 @@ def write_owned_tracks_to_postgres(postgres_connection, acoustid_matches):
     postgres_connection.commit()
 
 def main():
-    parser = argparse.ArgumentParser(description='Supply the path to a directory of JSON files containing your Spotify extended streaming history.')
-    parser.add_argument('--output-path')
-    parser.add_argument('--postgresql', action='store_const', const=True)
+    parser = argparse.ArgumentParser()
     parser.add_argument('--postgresql-host', default='localhost')
     parser.add_argument('--postgresql-port', default='5432')
     parser.add_argument('--postgresql-sslmode', default='disable')
     parser.add_argument('--postgresql-db', default='postgres')
     parser.add_argument('--postgresql-user', default='postgres')
     parser.add_argument('--postgresql-password', default='password')
-    parser.add_argument('--spotify-client-id')
-    parser.add_argument('--spotify-client-secret')
     parser.add_argument('--spotify-tracks-metadata-path')
     parser.add_argument('--spotify-streaming-history-path')
     parser.add_argument('--acousticbrainz-metadata-path')
@@ -463,49 +384,40 @@ def main():
     parser.add_argument('--acoustid-matches-path')
     args = parser.parse_args()
 
-    if args.spotify_streaming_history_path:
-        streams = read_spotify_streaming_history(args.spotify_streaming_history_path)
+    postgres_connection = connect_to_postgres(args.postgresql_host,
+                                                args.postgresql_port,
+                                                args.postgresql_sslmode,
+                                                args.postgresql_db,
+                                                args.postgresql_user,
+                                                args.postgresql_password)
 
-    tracks_metadata = None
-    if streams and args.spotify_client_id and args.spotify_client_secret:
-        access_token = get_spotify_access_token(args.spotify_client_id, args.spotify_client_secret)
-        tracks_metadata = get_all_tracks_metadata(streams, access_token, args.spotify_tracks_metadata_path)
-    elif args.spotify_tracks_metadata_path:
-        tracks_metadata = read_json(args.spotify_tracks_metadata_path)
+    with postgres_connection:
+        if args.spotify_streaming_history_path:
+            streams = read_spotify_streaming_history(args.spotify_streaming_history_path)
+            write_streams_to_postgres(postgres_connection, streams)
 
-    if args.postgresql:
-        postgres_connection = connect_to_postgres(args.postgresql_host,
-                                                  args.postgresql_port,
-                                                  args.postgresql_sslmode,
-                                                  args.postgresql_db,
-                                                  args.postgresql_user,
-                                                  args.postgresql_password)
+        if args.spotify_tracks_metadata_path:
+            tracks_metadata = read_json(args.spotify_tracks_metadata_path)
+            write_albums_metadata_to_postgres(postgres_connection, tracks_metadata)
+            write_tracks_metadata_to_postgres(postgres_connection, tracks_metadata)
+            write_artists_metadata_to_postgres(postgres_connection, tracks_metadata)
+            write_track_artists_metadata_to_postgres(postgres_connection, tracks_metadata)
 
-        with postgres_connection:
-            if streams:
-                write_streams_to_postgres(postgres_connection, streams)
+        if args.musicbrainz_ids_path:
+            ids = read_json(args.musicbrainz_ids_path)
+            write_musicbrainz_ids_to_postgres(postgres_connection, ids)
 
-            if tracks_metadata:
-                write_albums_metadata_to_postgres(postgres_connection, tracks_metadata)
-                write_tracks_metadata_to_postgres(postgres_connection, tracks_metadata)
-                write_artists_metadata_to_postgres(postgres_connection, tracks_metadata)
-                write_track_artists_metadata_to_postgres(postgres_connection, tracks_metadata)
+        if args.musicbrainz_tags_path:
+            tags = read_json(args.musicbrainz_tags_path)
+            write_musicbrainz_tags_to_postgres(postgres_connection, tags)
 
-            if args.musicbrainz_ids_path:
-                ids = read_json(args.musicbrainz_ids_path)
-                write_musicbrainz_ids_to_postgres(postgres_connection, ids)
+        if args.acousticbrainz_metadata_path:
+            ab_metadata = read_json(args.acousticbrainz_metadata_path)
+            write_acousticbrainz_metadata_to_postgres(postgres_connection, ab_metadata)
 
-            if args.musicbrainz_tags_path:
-                tags = read_json(args.musicbrainz_tags_path)
-                write_musicbrainz_tags_to_postgres(postgres_connection, tags)
-
-            if args.acousticbrainz_metadata_path:
-                ab_metadata = read_json(args.acousticbrainz_metadata_path)
-                write_acousticbrainz_metadata_to_postgres(postgres_connection, ab_metadata)
-
-            if args.acoustid_matches_path:
-                content = read_json(args.acoustid_matches_path)
-                write_owned_tracks_to_postgres(postgres_connection, content['matches'])
+        if args.acoustid_matches_path:
+            content = read_json(args.acoustid_matches_path)
+            write_owned_tracks_to_postgres(postgres_connection, content['matches'])
 
 
 if __name__ == "__main__":
