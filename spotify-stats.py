@@ -160,12 +160,11 @@ def write_albums_metadata_to_postgres(postgres_connection, tracks_metadata):
                 CREATE TABLE IF NOT EXISTS spotify_albums (
                     id serial PRIMARY KEY,
                     spotify_id TEXT NOT NULL,
-                    spotify_uri TEXT NOT NULL,
-                    name TEXT,
-                    release_date TEXT,
-                    release_date_precision TEXT,
-                    total_tracks INTEGER,
-                    album_type TEXT)
+                    name TEXT NOT NULL,
+                    release_date TEXT NOT NULL,
+                    release_date_precision TEXT NOT NULL,
+                    total_tracks INTEGER NOT NULL,
+                    album_type TEXT NOT NULL)
                 """)
 
         cur.execute("""
@@ -177,9 +176,8 @@ def write_albums_metadata_to_postgres(postgres_connection, tracks_metadata):
 
         print('Writing albums data to postgres...')
         for album in albums_by_id.values():
-            cur.execute("INSERT INTO spotify_albums (spotify_id, spotify_uri, name, release_date, release_date_precision, total_tracks, album_type) VALUES (%s, %s, %s, %s, %s, %s, %s)", (
+            cur.execute("INSERT INTO spotify_albums (spotify_id, name, release_date, release_date_precision, total_tracks, album_type) VALUES (%s, %s, %s, %s, %s, %s)", (
                 album['id'],
-                album['uri'],
                 album['name'],
                 album['release_date'],
                 album['release_date_precision'],
@@ -197,10 +195,10 @@ def write_tracks_metadata_to_postgres(postgres_connection, tracks_metadata):
                     id serial PRIMARY KEY,
                     spotify_id TEXT NOT NULL,
                     spotify_uri TEXT NOT NULL,
-                    album_id TEXT,
+                    album_id TEXT NOT NULL,
                     isrc TEXT,
-                    duration_ms INTEGER,
-                    popularity INTEGER)
+                    duration_ms INTEGER NOT NULL,
+                    popularity INTEGER NOT NULL)
                 """)
 
         cur.execute("""
