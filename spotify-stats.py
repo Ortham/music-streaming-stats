@@ -225,6 +225,72 @@ def write_tracks_metadata_to_postgres(postgres_connection, tracks_metadata):
 
     postgres_connection.commit()
 
+def write_artists_metadata_to_postgres(postgres_connection, tracks_metadata):
+    artists_by_id = {}
+    for track in tracks_metadata:
+        for artist in track['artists']:
+            artists_by_id[artist['id']] = artist
+
+    with postgres_connection.cursor() as cur:
+
+        cur.execute("""
+                CREATE TABLE IF NOT EXISTS spotify_artists (
+                    id serial PRIMARY KEY,
+                    spotify_id TEXT NOT NULL,
+                    name TEXT NOT NULL)
+                """)
+
+        cur.execute("""
+                    CREATE INDEX IF NOT EXISTS spotify_artists_spotify_id_idx
+                        ON spotify_artists (spotify_id)
+                    """)
+
+        cur.execute("TRUNCATE TABLE spotify_artists")
+
+        print('Writing albums data to postgres...')
+        for artist in artists_by_id.values():
+            cur.execute("INSERT INTO spotify_artists (spotify_id, name) VALUES (%s, %s)", (
+                artist['id'],
+                artist['name']))
+
+    postgres_connection.commit()
+
+def write_track_artists_metadata_to_postgres(postgres_connection, tracks_metadata):
+    artists_by_id = {}
+    for track in tracks_metadata:
+        for artist in track['artists']:
+            artists_by_id[artist['id']] = artist
+
+    with postgres_connection.cursor() as cur:
+
+        cur.execute("""
+                CREATE TABLE IF NOT EXISTS spotify_track_artists (
+                    id serial PRIMARY KEY,
+                    track_id TEXT NOT NULL,
+                    artist_id TEXT NOT NULL)
+                """)
+
+        cur.execute("""
+                    CREATE INDEX IF NOT EXISTS spotify_track_artists_track_id_idx
+                        ON spotify_track_artists (track_id)
+                    """)
+
+        cur.execute("""
+                    CREATE INDEX IF NOT EXISTS spotify_track_artists_artist_id_idx
+                        ON spotify_track_artists (artist_id)
+                    """)
+
+        cur.execute("TRUNCATE TABLE spotify_track_artists")
+
+        print('Writing albums data to postgres...')
+        for track in tracks_metadata:
+            for artist in track['artists']:
+                cur.execute("INSERT INTO spotify_track_artists (track_id, artist_id) VALUES (%s, %s)", (
+                    track['id'],
+                    artist['id']))
+
+    postgres_connection.commit()
+
 def write_musicbrainz_ids_to_postgres(postgres_connection, mb_metadata):
     with postgres_connection.cursor() as cur:
 
@@ -422,6 +488,8 @@ def main():
             if tracks_metadata:
                 write_albums_metadata_to_postgres(postgres_connection, tracks_metadata)
                 write_tracks_metadata_to_postgres(postgres_connection, tracks_metadata)
+                write_artists_metadata_to_postgres(postgres_connection, tracks_metadata)
+                write_track_artists_metadata_to_postgres(postgres_connection, tracks_metadata)
 
             if args.musicbrainz_ids_path:
                 ids = read_json(args.musicbrainz_ids_path)
