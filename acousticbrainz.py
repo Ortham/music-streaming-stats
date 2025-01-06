@@ -97,7 +97,7 @@ def reduce_metadata(recording_metadata):
             'is_sad': True if value['mood_sad']['value'] == 'sad' else False,
             'timbre': value['timbre']['value'],
             'is_tonal': True if value['tonal_atonal']['value'] == 'tonal' else False,
-            'is_instrumental': True if value['voice_instrumental']['value'] == 'tonal' else False
+            'is_instrumental': True if value['voice_instrumental']['value'] == 'instrumental' else False
         }
 
     if 'low_level' in recording_metadata:
