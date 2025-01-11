@@ -33,3 +33,9 @@ It's possible to visualise the data stored in PostgreSQL using Grafana. To set t
 14. Click the "Load" button at the bottom of the page.
 
 **The default configuration uses hardcoded plaintext secrets and is not intended for production!**
+
+To generate PNG images of visualisations from within Grafana, first install the image renderer plugin by running:
+
+```
+podman compose exec -it grafana grafana-cli plugins install grafana-image-renderer
+```
