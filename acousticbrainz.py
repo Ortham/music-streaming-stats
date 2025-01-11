@@ -1,23 +1,13 @@
 #!/usr/bin/env python3
 
 import argparse
-import csv
 from time import sleep
 
-from helpers import read_json, write_json
+from helpers import read_json, write_json, read_csv
 
 import requests
 
 max_recordings_per_request = 25
-
-def parse_csv(file_path):
-    rows = []
-    with open(file_path, encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            rows.append(row)
-
-    return rows
 
 def get_from_acousticbrainz(url, params):
     retry_after_header = 'X-RateLimit-Reset-In'
@@ -153,7 +143,7 @@ def main():
 
     low_level_mbids = set()
     if args.low_level_csv_path:
-        low_level_data = parse_csv(args.low_level_csv_path)
+        low_level_data = read_csv(args.low_level_csv_path)
         low_level_mbids = set(r['mbid'] for r in low_level_data)
         print(f'Found low-level acoustic metadata for {len(low_level_mbids)} MBIDs')
 

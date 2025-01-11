@@ -1,3 +1,4 @@
+import csv
 import json
 import os
 
@@ -23,3 +24,12 @@ def read_spotify_streaming_history(dir_path):
             streams.extend(read_json(file_path))
 
     return streams
+
+def read_csv(file_path):
+    rows = []
+    with open(file_path, encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rows.append(row)
+
+    return rows

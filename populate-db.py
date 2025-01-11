@@ -3,7 +3,7 @@
 import argparse
 from datetime import datetime, timezone
 
-from helpers import read_json, connect_to_postgres, read_spotify_streaming_history
+from helpers import read_json, connect_to_postgres, read_spotify_streaming_history, read_csv
 
 def write_streams_to_postgres(postgres_connection, streams):
     with postgres_connection.cursor() as cur:
@@ -216,6 +216,24 @@ def write_track_artists_metadata_to_postgres(postgres_connection, tracks_metadat
 
     postgres_connection.commit()
 
+def write_payments_metadata_to_postgres(postgres_connection, payments):
+    with postgres_connection.cursor() as cur:
+        cur.execute("""
+                CREATE TABLE IF NOT EXISTS spotify_payments (
+                    id serial PRIMARY KEY,
+                    date DATE NOT NULL,
+                    cost NUMERIC(4, 2) NOT NULL)
+                """)
+
+        cur.execute("TRUNCATE TABLE spotify_payments")
+
+        print('Writing Spotify payments data to postgres...')
+        for payment in payments:
+            cur.execute('INSERT INTO spotify_payments (date, cost) VALUES (%s, %s)', (payment['Date'], payment['Cost']))
+
+    postgres_connection.commit()
+
+
 def write_musicbrainz_ids_to_postgres(postgres_connection, mb_metadata):
     with postgres_connection.cursor() as cur:
 
@@ -378,6 +396,7 @@ def main():
     parser.add_argument('--postgresql-password', default='password')
     parser.add_argument('--spotify-tracks-metadata-path')
     parser.add_argument('--spotify-streaming-history-path')
+    parser.add_argument('--spotify-payments-path')
     parser.add_argument('--acousticbrainz-metadata-path')
     parser.add_argument('--musicbrainz-ids-path')
     parser.add_argument('--musicbrainz-tags-path')
@@ -402,6 +421,10 @@ def main():
             write_tracks_metadata_to_postgres(postgres_connection, tracks_metadata)
             write_artists_metadata_to_postgres(postgres_connection, tracks_metadata)
             write_track_artists_metadata_to_postgres(postgres_connection, tracks_metadata)
+
+        if args.spotify_payments_path:
+            payments = read_csv(args.spotify_payments_path)
+            write_payments_metadata_to_postgres(postgres_connection, payments)
 
         if args.musicbrainz_ids_path:
             ids = read_json(args.musicbrainz_ids_path)
