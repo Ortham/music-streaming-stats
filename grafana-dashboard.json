@@ -22,91 +22,12 @@
   "links": [],
   "panels": [
     {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "be68m28l3yjuoa"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 6,
-        "y": 0
-      },
-      "id": 22,
-      "options": {
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "sizing": "auto"
-      },
-      "pluginVersion": "11.4.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "select count(*) as \"Streams\", \r\n  count(*) filter (where reason_end = 'trackdone') as \"Completed streams\",\r\n  count(distinct track_uri) \"Tracks\",\r\n  count(distinct artist_name) \"Artists\",\r\n  count(distinct album_name) \"Albums\"\r\n  FROM spotify_streams WHERE $__timeFilter(timestamp)",
-          "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ],
-            "limit": 50
-          }
-        }
-      ],
-      "title": "Stream counts",
-      "type": "gauge"
-    },
-    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 8
+        "y": 0
       },
       "id": 19,
       "panels": [],
@@ -130,10 +51,6 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
               }
             ]
           },
@@ -145,7 +62,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 9
+        "y": 1
       },
       "id": 5,
       "options": {
@@ -160,7 +77,7 @@
           "values": false
         },
         "showThresholdLabels": false,
-        "showThresholdMarkers": true,
+        "showThresholdMarkers": false,
         "sizing": "auto"
       },
       "pluginVersion": "11.4.0",
@@ -169,8 +86,37 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "select sum(ms_played) \"Total\", \r\n        avg(ms_played) as \"Average stream length\",\r\n        avg(ms_played) filter (where reason_end = 'trackdone') as \"Average complete stream length\"\r\n    from spotify_streams where $__timeFilter(timestamp)",
+          "rawSql": "with tracks as\r\n    (select distinct on (ss.track_uri) ss.track_uri, owr.id\r\n      from spotify_streams ss\r\n      join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n      join owned_recordings owr on owr.recording_id = mr.musicbrainz_id),\r\n  complete_albums as\r\n    (select name, album_id, album_type, total_tracks from\r\n      (select name, album_id, album_type, total_tracks, count(*) as tracks\r\n        from\r\n          (select distinct on (track_uri) name, album_id, total_tracks, album_type\r\n            from spotify_streams ss\r\n            join spotify_tracks st on st.spotify_uri = ss.track_uri\r\n            join spotify_albums sa on sa.spotify_id = st.album_id\r\n            where $__timeFilter(timestamp) and reason_end = 'trackdone')\r\n        group by album_id, name, album_type, total_tracks)\r\n      where tracks = total_tracks\r\n      order by total_tracks desc)\r\n  select sum(ms_played) \"Total\",\r\n      sum(ms_played) filter (where reason_end = 'trackdone') as \"Completed\",\r\n      sum(ms_played) filter (where tracks.id is not null) as \"Owned tracks\",\r\n      sum(ms_played) filter (where tracks.id is null and reason_end = 'trackdone') as \"Unowned tracks (completed)\",\r\n      sum(ms_played) filter (where ca.album_id is not null) as \"Complete albums, singles and compilations\",\r\n      avg(ms_played) as \"Average stream length\",\r\n      avg(ms_played) filter (where reason_end = 'trackdone') as \"Average complete stream length\",\r\n      avg(ms_played) filter (where skipped = true\r\n        or reason_end in ('backbtn', 'unknown', 'endplay', 'fwdbtn')) as \"Mean time before skip\"\r\n    from spotify_streams ss\r\n    join spotify_tracks st on st.spotify_uri = ss.track_uri\r\n    left join tracks on ss.track_uri = tracks.track_uri\r\n    left join complete_albums ca on ca.album_id = st.album_id\r\n    where $__timeFilter(timestamp);",
           "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "be68m28l3yjuoa"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "hide": false,
+          "rawQuery": true,
+          "rawSql": "\r\n",
+          "refId": "B",
           "sql": {
             "columns": [
               {
@@ -233,7 +179,7 @@
               "mode": "none"
             },
             "thresholdsStyle": {
-              "mode": "off"
+              "mode": "line"
             }
           },
           "mappings": [],
@@ -243,10 +189,6 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
               }
             ]
           },
@@ -258,7 +200,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 9
+        "y": 1
       },
       "id": 16,
       "options": {
@@ -281,9 +223,9 @@
             "uid": "be68m28l3yjuoa"
           },
           "editorMode": "code",
-          "format": "table",
+          "format": "time_series",
           "rawQuery": true,
-          "rawSql": "select sum(ms_played), $__timeGroupAlias(timestamp, $__interval, 0)\r\n  from spotify_streams where $__timeFilter(timestamp) group by time;",
+          "rawSql": "with tracks as\r\n  (select distinct on (ss.track_uri) ss.track_uri, owr.id \r\n    from spotify_streams ss\r\n    join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n    join owned_recordings owr on owr.recording_id = mr.musicbrainz_id)\r\n  select $__timeGroupAlias(timestamp, $__interval),\r\n    sum(ms_played) as \"all tracks\",\r\n    sum(ms_played) filter (where tracks.id is not null) as \"owned tracks\", \r\n    sum(ms_played) filter (where tracks.id is null) as \"unowned tracks\"\r\n  from spotify_streams ss\r\n  left join tracks on ss.track_uri = tracks.track_uri\r\n  where $__timeFilter(timestamp)\r\n  group by time",
           "refId": "A",
           "sql": {
             "columns": [
@@ -374,7 +316,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 17
+        "y": 9
       },
       "id": 9,
       "options": {
@@ -486,7 +428,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 17
+        "y": 9
       },
       "id": 15,
       "options": {
@@ -550,7 +492,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 25
+        "y": 17
       },
       "id": 20,
       "panels": [],
@@ -565,40 +507,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "bars",
-            "fillOpacity": 100,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "normal"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "mode": "thresholds"
           },
           "mappings": [],
           "thresholds": {
@@ -607,10 +516,6 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
               }
             ]
           }
@@ -621,33 +526,33 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 18
       },
-      "id": 1,
-      "maxDataPoints": 12,
+      "id": 30,
       "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "be68m28l3yjuoa"
-          },
           "editorMode": "code",
-          "format": "time_series",
+          "format": "table",
           "rawQuery": true,
-          "rawSql": "select $__timeGroupAlias(timestamp, $__interval), reason_end as metric, count(*)\r\n  from spotify_streams where $__timeFilter(timestamp)\r\n    and reason_end not in ('', 'appload', 'clickrow', 'playbtn', 'popup', 'uriopen', 'unknown')\r\n  group by time, reason_end\r\n  order by time;",
+          "rawSql": "select \r\n    count(distinct ss.track_uri) \"Tracks\",\r\n    count(distinct album_id) \"Albums\",\r\n    count(distinct artist_id) \"Artists\"\r\n  from spotify_streams ss\r\n  join spotify_tracks st on ss.track_uri = st.spotify_uri\r\n  join spotify_albums sa on st.album_id = sa.spotify_id\r\n  join spotify_track_artists sta on sta.track_id = st.spotify_id\r\n  where $__timeFilter(timestamp);",
           "refId": "A",
           "sql": {
             "columns": [
@@ -668,8 +573,160 @@
           }
         }
       ],
-      "title": "Stream end reasons",
-      "type": "timeseries"
+      "title": "Counts",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "be68m28l3yjuoa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "id": 31,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "with tracks as\r\n  (select distinct on (ss.track_uri) ss.track_uri, owr.id\r\n    from spotify_streams ss\r\n    join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n    join owned_recordings owr on owr.recording_id = mr.musicbrainz_id)\r\n  select \r\n      count(distinct ss.track_uri) \"Tracks\",\r\n      count(distinct ss.track_uri) filter (where tracks.id is null) \"Unowned Tracks\",\r\n      count(distinct album_id) \"Albums\",\r\n      count(distinct artist_id) \"Artists\"\r\n    from spotify_streams ss\r\n    join spotify_tracks st on ss.track_uri = st.spotify_uri\r\n    join spotify_albums sa on st.album_id = sa.spotify_id\r\n    join spotify_track_artists sta on sta.track_id = st.spotify_id\r\n    left join tracks on ss.track_uri = tracks.track_uri\r\n    where $__timeFilter(timestamp) and reason_end <> 'trackdone'",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Counts from complete streams",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "be68m28l3yjuoa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "id": 22,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": false,
+        "sizing": "auto"
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "with tracks as\r\n  (select distinct on (ss.track_uri) ss.track_uri, owr.id\r\n    from spotify_streams ss\r\n    join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n    join owned_recordings owr on owr.recording_id = mr.musicbrainz_id)\r\n  select count(*) as \"Streams\",\r\n    count(*) filter (where reason_end = 'trackdone') as \"Completed streams\",\r\n    count(*) filter (where tracks.id is not null) as \"Owned track streams\",    \r\n    count(*) filter (where tracks.id is null) as \"Unowned track streams\",\r\n    count(*) filter (where tracks.id is null and reason_end = 'trackdone') as \"Unowned track completed streams\"\r\n  from spotify_streams ss\r\n  left join tracks on ss.track_uri = tracks.track_uri\r\n  where $__timeFilter(timestamp);",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Stream counts",
+      "type": "gauge"
     },
     {
       "datasource": {
@@ -786,17 +843,390 @@
       "type": "timeseries"
     },
     {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "be68m28l3yjuoa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 100,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "id": 1,
+      "maxDataPoints": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "be68m28l3yjuoa"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "select $__timeGroupAlias(timestamp, $__interval), reason_end as metric, count(*)\r\n  from spotify_streams where $__timeFilter(timestamp)\r\n    and reason_end not in ('', 'appload', 'clickrow', 'playbtn', 'popup', 'uriopen', 'unknown')\r\n  group by time, reason_end\r\n  order by time;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Stream end reasons",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "be68m28l3yjuoa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "id": 26,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "select album_type, count(*), $__timeGroupAlias(timestamp, $__interval, 0)\r\n  from spotify_streams ss\r\n  join spotify_tracks st on ss.track_uri = st.spotify_uri\r\n  join spotify_albums sa on st.album_id = sa.spotify_id\r\n  where $__timeFilter(timestamp)\r\n  group by time, album_type\r\n  order by time;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Streams per album type",
+      "type": "timeseries"
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 42
       },
       "id": 18,
       "panels": [],
       "title": "Tracks",
       "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "be68m28l3yjuoa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 43
+      },
+      "id": 37,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "select count(*) filter (where percent_total_stream_duration <= 0.5) as \"50%\",\r\n    count(*) filter (where percent_total_stream_duration <= 0.75) as \"75%\",\r\n    count(*) filter (where percent_total_stream_duration <= 0.80) as \"80%\",\r\n    count(*) filter (where percent_total_stream_duration <= 0.90) as \"90%\",\r\n    count(*) filter (where percent_total_stream_duration <= 0.95) as \"95%\",\r\n    count(*) filter (where percent_total_stream_duration <= 0.99) as \"99%\"\r\n  from\r\n    (select sum(track_played_sum) over (order by track_played_sum desc) /\r\n        (select sum(ms_played) from spotify_streams) as percent_total_stream_duration\r\n      from\r\n        (select sum(ms_played) as track_played_sum\r\n          from spotify_streams where $__timeFilter(timestamp)\r\n          group by track_uri))",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Tracks needed to cover percentages of total streaming time",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "be68m28l3yjuoa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 43
+      },
+      "id": 33,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "with tracks as\r\n  (select distinct on (ss.track_uri) ss.track_uri, owr.id\r\n    from spotify_streams ss\r\n    join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n    join owned_recordings owr on owr.recording_id = mr.musicbrainz_id)\r\n  select sum(c) as \"Total\",\r\n      avg(c) as \"Mean\",\r\n      percentile_cont(0.5) within group (order by c) as \"Median\",\r\n      mode() within group (order by c) as \"Mode\"\r\n    from\r\n      (select ss.track_uri, count(*) as c from spotify_streams ss\r\n        join tracks on ss.track_uri = tracks.track_uri\r\n        where $__timeFilter(timestamp) and reason_end = 'trackdone'\r\n        group by ss.track_uri)",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Complete listen counts for owned tracks",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -834,8 +1264,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -850,7 +1279,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 35
+        "y": 51
       },
       "id": 11,
       "options": {
@@ -917,6 +1346,82 @@
       "fieldConfig": {
         "defaults": {
           "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 51
+      },
+      "id": 43,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "with tracks as\r\n  (select distinct on (ss.track_uri) ss.track_uri, owr.id\r\n    from spotify_streams ss\r\n    join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n    join owned_recordings owr on owr.recording_id = mr.musicbrainz_id)\r\n  select sum(c) as \"Total\",\r\n      avg(c) as \"Mean\",\r\n      percentile_cont(0.5) within group (order by c) as \"Median\",\r\n      mode() within group (order by c) as \"Mode\"\r\n    from\r\n      (select ss.track_uri, count(*) as c from spotify_streams ss\r\n        left join tracks on ss.track_uri = tracks.track_uri\r\n        where $__timeFilter(timestamp) and reason_end = 'trackdone' and tracks.id is null\r\n        group by ss.track_uri)",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Complete listen counts for unowned tracks",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "be68m28l3yjuoa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
             "mode": "palette-classic"
           },
           "custom": {
@@ -945,8 +1450,113 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 59
+      },
+      "id": 32,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "normal",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelMaxLength": 20,
+        "xTickLabelRotation": 90,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "with tracks as\r\n  (select distinct on (ss.track_uri) ss.track_uri, owr.id\r\n    from spotify_streams ss\r\n    join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n    join owned_recordings owr on owr.recording_id = mr.musicbrainz_id)\r\n  select count(*) filter (where reason_end = 'trackdone') as \"Complete streams\",\r\n    count(*) filter (where reason_end <> 'trackdone') as \"Incomplete streams\",\r\n    track_name\r\n    from spotify_streams ss\r\n    left join tracks on ss.track_uri = tracks.track_uri\r\n    where $__timeFilter(timestamp) and tracks.id is null\r\n    group by ss.track_uri, track_name\r\n  order by \"Complete streams\" desc, \"Incomplete streams\" desc\r\n    limit 20;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Most completely-streamed unowned tracks",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "be68m28l3yjuoa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
               },
               {
                 "color": "red",
@@ -961,7 +1571,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 35
+        "y": 59
       },
       "id": 12,
       "options": {
@@ -996,7 +1606,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "select count(*) filter (where skipped = true) as \"Skipped streams\", \r\n    count(*) filter (where reason_end = 'trackdone') as \"Complete streams\", \r\n    track_name,\r\n    track_uri\r\n  from spotify_streams\r\n  where $__timeFilter(timestamp) \r\n  group by track_uri, track_name \r\n  ORDER BY \"Skipped streams\" DESC, \"Complete streams\" DESC\r\n  LIMIT 10",
+          "rawSql": "select count(*) filter (where skipped = true\r\n      or reason_end in ('backbtn', 'unknown', 'endplay', 'fwdbtn')) as \"Skipped streams\",\r\n    count(*) filter (where reason_end = 'trackdone') as \"Complete streams\",\r\n    track_name,\r\n    track_uri\r\n  from spotify_streams where $__timeFilter(timestamp)\r\n  group by track_uri, track_name\r\n  order by \"Skipped streams\" desc, \"Complete streams\" desc\r\n  limit 10;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1057,8 +1667,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1086,243 +1695,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 43
-      },
-      "id": 10,
-      "options": {
-        "barRadius": 0,
-        "barWidth": 1,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "orientation": "auto",
-        "showValue": "auto",
-        "stacking": "none",
-        "text": {},
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        },
-        "xTickLabelRotation": 0,
-        "xTickLabelSpacing": 0
-      },
-      "pluginVersion": "11.4.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "be68m28l3yjuoa"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "select count(*) as \"Streams\", \r\n    count(*) filter (where reason_end = 'trackdone') as \"Complete streams\", \r\n    track_name,\r\n    track_uri\r\n  from spotify_streams\r\n  where $__timeFilter(timestamp) \r\n  group by track_uri, track_name \r\n  ORDER BY \"Complete streams\" DESC, \"Streams\" DESC",
-          "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ],
-            "limit": 50
-          }
-        }
-      ],
-      "title": "Complete streams per track",
-      "type": "barchart"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "be68m28l3yjuoa"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "fillOpacity": 80,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineWidth": 1,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 43
-      },
-      "id": 17,
-      "options": {
-        "barRadius": 0,
-        "barWidth": 0.97,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "orientation": "auto",
-        "showValue": "auto",
-        "stacking": "none",
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        },
-        "xTickLabelMaxLength": 10,
-        "xTickLabelRotation": 90,
-        "xTickLabelSpacing": 0
-      },
-      "pluginVersion": "11.4.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "be68m28l3yjuoa"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "select count(*) filter (where reason_end <> 'trackdone') as \"Incomplete streams\", \r\n    count(*) filter (where reason_end = 'trackdone') as \"Complete streams\", \r\n    track_name,\r\n    track_uri\r\n  from spotify_streams\r\n  where $__timeFilter(timestamp) \r\n  group by track_uri, track_name \r\n  ORDER BY \"Incomplete streams\" DESC, \"Complete streams\" DESC\r\n  LIMIT 10",
-          "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ],
-            "limit": 50
-          }
-        }
-      ],
-      "title": "Top 10 most incompletely streamed tracks",
-      "type": "barchart"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "be68m28l3yjuoa"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "axisSoftMin": -10,
-            "fillOpacity": 80,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineWidth": 1,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byType",
-              "options": "string"
-            },
-            "properties": [
-              {
-                "id": "custom.axisPlacement",
-                "value": "hidden"
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 51
+        "y": 67
       },
       "id": 6,
       "options": {
@@ -1413,7 +1786,8 @@
             "lineWidth": 1,
             "pointSize": 5,
             "scaleDistribution": {
-              "type": "linear"
+              "log": 2,
+              "type": "log"
             },
             "showPoints": "auto",
             "spanNulls": false,
@@ -1430,8 +1804,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1446,7 +1819,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 51
+        "y": 67
       },
       "id": 2,
       "maxDataPoints": 12,
@@ -1455,7 +1828,7 @@
           "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "tooltip": {
           "mode": "single",
@@ -1472,7 +1845,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "select time, metric, total\r\n  from (select $__timeGroup(timestamp, $__interval) as time,\r\n      track_name as metric,\r\n      track_uri,\r\n      count(*) as total,\r\n      dense_rank() over (partition by $__timeGroup(timestamp, $__interval) order by count(*) desc) as rank\r\n    from spotify_streams where $__timeFilter(timestamp) and reason_end = 'trackdone'\r\n    group by time, track_uri, metric\r\n    order by time asc, total desc)\r\n  where rank <= 5",
+          "rawSql": "with metrics as\r\n  (select $__timeGroup(timestamp, $__interval) as time,\r\n      track_name as metric,\r\n      track_uri,\r\n      count(*) as total,\r\n      dense_rank() over (partition by $__timeGroup(timestamp, $__interval) order by count(*) desc) as rank\r\n    from spotify_streams where $__timeFilter(timestamp) and reason_end = 'trackdone'\r\n    group by time, track_uri, metric\r\n    order by time asc, total desc)\r\n  select time, metric, total from metrics where rank <= 5\r\n  union all\r\n  select time, 'Others', sum(total) from metrics where rank > 5\r\n    group by time\r\n    order by time asc;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1495,19 +1868,6 @@
       ],
       "title": "Top 5 tracks",
       "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 59
-      },
-      "id": 21,
-      "panels": [],
-      "title": "Artists & Albums",
-      "type": "row"
     },
     {
       "datasource": {
@@ -1545,8 +1905,454 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "value"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 75
+      },
+      "id": 25,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 100
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "select popularity::text, sum(ms_played) as value\r\n  from spotify_streams ss\r\n  join spotify_tracks st on ss.track_uri = st.spotify_uri\r\n  where $__timeFilter(timestamp)\r\n  group by popularity\r\n  order by popularity::integer asc;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Track popularity by time played",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "be68m28l3yjuoa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMin": -10,
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byType",
+              "options": "string"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 83
+      },
+      "id": 10,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 1,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "none",
+        "text": {},
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "be68m28l3yjuoa"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "select count(*) as \"Streams\", \r\n    count(*) filter (where reason_end = 'trackdone') as \"Complete streams\", \r\n    track_name,\r\n    track_uri\r\n  from spotify_streams\r\n  where $__timeFilter(timestamp) \r\n  group by track_uri, track_name \r\n  ORDER BY \"Complete streams\" DESC, \"Streams\" DESC",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Complete streams per track",
+      "type": "barchart"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 91
+      },
+      "id": 21,
+      "panels": [],
+      "title": "Artists & Albums",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "be68m28l3yjuoa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 92
+      },
+      "id": 36,
+      "options": {
+        "displayLabels": [
+          "percent",
+          "name"
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "with complete_albums as\r\n  (select name, album_id, album_type, total_tracks from\r\n    (select name, album_id, album_type, total_tracks, count(*) as tracks\r\n      from\r\n        (select distinct on (track_uri) name, album_id, total_tracks, album_type\r\n          from spotify_streams ss\r\n          join spotify_tracks st on st.spotify_uri = ss.track_uri\r\n          join spotify_albums sa on sa.spotify_id = st.album_id\r\n          where $__timeFilter(timestamp) and reason_end = 'trackdone')\r\n      group by album_id, name, album_type, total_tracks)\r\n    where tracks = total_tracks\r\n    order by total_tracks desc)\r\n  select album_type, count(*)\r\n    from complete_albums\r\n    group by album_type;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Complete album listens by type",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "be68m28l3yjuoa"
+      },
+      "description": "By completely-streamed track count.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 92
+      },
+      "id": 13,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "normal",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelMaxLength": 10,
+        "xTickLabelRotation": 90,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "be68m28l3yjuoa"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "select count(*) filter (where reason_end = 'trackdone') as \"Complete streams\",\r\n    count(*) filter (where reason_end <> 'trackdone') as \"Incomplete streams\",\r\n    sa.name\r\n  from spotify_streams ss\r\n  join spotify_tracks st on ss.track_uri = st.spotify_uri\r\n  join spotify_albums sa on sa.spotify_id = st.album_id\r\n  where $__timeFilter(timestamp)\r\n  group by sa.spotify_id, sa.name\r\n  order by \"Complete streams\" desc\r\n  limit 10;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Top 10 albums",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "be68m28l3yjuoa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1561,7 +2367,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 60
+        "y": 100
       },
       "id": 14,
       "options": {
@@ -1596,7 +2402,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "select count(*) filter (where reason_end = 'trackdone') as \"Complete streams\", \r\n    count(*) filter (where reason_end <> 'trackdone') as \"Incomplete streams\",\r\n    artist_name\r\n  from spotify_streams\r\n  where $__timeFilter(timestamp) \r\n  group by artist_name \r\n  ORDER BY \"Complete streams\" DESC\r\n  LIMIT 10",
+          "rawSql": "select count(*) filter (where reason_end = 'trackdone') as \"Complete streams\",\r\n    count(*) filter (where reason_end <> 'trackdone') as \"Incomplete streams\",\r\n    sa.name\r\n  from spotify_streams ss\r\n  join spotify_tracks st on ss.track_uri = st.spotify_uri\r\n  join spotify_track_artists sta on sta.track_id = st.spotify_id\r\n  join spotify_artists sa on sa.spotify_id = sta.artist_id\r\n  where $__timeFilter(timestamp)\r\n  group by sa.spotify_id, sa.name\r\n  order by \"Complete streams\" desc\r\n  limit 10;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1657,8 +2463,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1673,9 +2478,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 60
+        "y": 100
       },
-      "id": 13,
+      "id": 28,
       "options": {
         "barRadius": 0,
         "barWidth": 0.97,
@@ -1708,7 +2513,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "select count(*) filter (where reason_end = 'trackdone') as \"Complete streams\", \r\n    count(*) filter (where reason_end <> 'trackdone') as \"Incomplete streams\",\r\n    album_name\r\n  from spotify_streams\r\n  where $__timeFilter(timestamp) \r\n  group by album_name \r\n  ORDER BY \"Complete streams\" DESC\r\n  LIMIT 10",
+          "rawSql": "with tracks as\r\n  (select distinct on (ss.track_uri) ss.track_uri, owr.id\r\n    from spotify_streams ss\r\n    join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n    join owned_recordings owr on owr.recording_id = mr.musicbrainz_id)\r\n  select count(*) filter (where reason_end = 'trackdone') as \"Complete streams\",\r\n      count(*) filter (where reason_end <> 'trackdone') as \"Incomplete streams\",\r\n      sa.name\r\n    from spotify_streams ss\r\n    join spotify_tracks st on ss.track_uri = st.spotify_uri\r\n    join spotify_albums sa on sa.spotify_id = st.album_id\r\n    left join tracks on ss.track_uri = tracks.track_uri\r\n    where $__timeFilter(timestamp) and tracks.id is null\r\n    group by sa.spotify_id, sa.name\r\n    order by \"Complete streams\" desc\r\n    limit 20;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1729,7 +2534,7 @@
           }
         }
       ],
-      "title": "Top 10 albums",
+      "title": "Top 20 unowned albums",
       "type": "barchart"
     },
     {
@@ -1764,7 +2569,8 @@
             "lineWidth": 1,
             "pointSize": 5,
             "scaleDistribution": {
-              "type": "linear"
+              "log": 2,
+              "type": "log"
             },
             "showPoints": "auto",
             "spanNulls": false,
@@ -1781,8 +2587,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1797,7 +2602,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 68
+        "y": 108
       },
       "id": 3,
       "maxDataPoints": 12,
@@ -1806,7 +2611,7 @@
           "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "tooltip": {
           "mode": "single",
@@ -1823,7 +2628,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "select time, metric, total\r\n  from (select $__timeGroup(timestamp, $__interval) as time,\r\n      album_name as metric,\r\n      count(*) as total,\r\n      dense_rank() over (partition by $__timeGroup(timestamp, $__interval) order by count(*) desc) as rank\r\n    from spotify_streams where $__timeFilter(timestamp) and reason_end = 'trackdone'\r\n    group by time, metric\r\n    order by time asc, total desc)\r\n  where rank <= 5",
+          "rawSql": "with metrics as\r\n  (select $__timeGroup(timestamp, $__interval) as time,\r\n      sa.name as metric,\r\n      count(*) as total,\r\n      dense_rank() over (partition by $__timeGroup(timestamp, $__interval) order by count(*) desc) as rank\r\n    from spotify_streams ss\r\n    join spotify_tracks st on ss.track_uri = st.spotify_uri\r\n    join spotify_albums sa on sa.spotify_id = st.album_id\r\n    where $__timeFilter(timestamp) and reason_end = 'trackdone'\r\n    group by time, sa.spotify_id, metric\r\n    order by time asc, total desc)\r\n  select time, metric, total from metrics where rank <= 5\r\n  union all\r\n  select time, 'Others', sum(total) from metrics where rank > 5\r\n    group by time\r\n    order by time asc;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1879,7 +2684,8 @@
             "lineWidth": 1,
             "pointSize": 5,
             "scaleDistribution": {
-              "type": "linear"
+              "log": 2,
+              "type": "log"
             },
             "showPoints": "auto",
             "spanNulls": false,
@@ -1896,8 +2702,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1912,7 +2717,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 68
+        "y": 108
       },
       "id": 4,
       "maxDataPoints": 12,
@@ -1938,7 +2743,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "select time, metric, total\r\n  from (select $__timeGroup(timestamp, $__interval) as time,\r\n      artist_name as metric,\r\n      count(*) as total,\r\n      dense_rank() over (partition by $__timeGroup(timestamp, $__interval) order by count(*) desc) as rank\r\n    from spotify_streams where $__timeFilter(timestamp) and reason_end = 'trackdone'\r\n    group by time, metric\r\n    order by time asc, total desc)\r\n  where rank <= 5",
+          "rawSql": "with metrics as\r\n  (select $__timeGroup(timestamp, $__interval) as time,\r\n      sa.name as metric,\r\n      count(*) as total,\r\n      dense_rank() over (partition by $__timeGroup(timestamp, $__interval) order by count(*) desc) as rank\r\n    from spotify_streams ss\r\n    join spotify_tracks st on ss.track_uri = st.spotify_uri\r\n    join spotify_track_artists sta on sta.track_id = st.spotify_id\r\n    join spotify_artists sa on sa.spotify_id = sta.artist_id\r\n    where $__timeFilter(timestamp) and reason_end = 'trackdone'\r\n    group by time, sa.spotify_id, metric\r\n    order by time asc, total desc)\r\n  select time, metric, total from metrics where rank <= 5\r\n  union all\r\n  select time, 'Others', sum(total) from metrics where rank > 5\r\n    group by time\r\n    order by time asc;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1961,6 +2766,866 @@
       ],
       "title": "Top 5 artists",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 116
+      },
+      "id": 34,
+      "panels": [],
+      "title": "Tags",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "be68m28l3yjuoa"
+      },
+      "description": "By count of completely streamed tracks.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 50,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "log": 2,
+              "type": "log"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "percent"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 117
+      },
+      "id": 23,
+      "maxDataPoints": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "with metrics as\r\n  (select $__timeGroup(timestamp, $__interval) as time,\r\n      name as metric,\r\n      count(*) as total,\r\n      dense_rank() over (partition by $__timeGroup(timestamp, $__interval) order by count(*) desc) as rank\r\n    from spotify_streams ss\r\n    join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n    join musicbrainz_recording_tags mrt on mrt.recording_id = mr.musicbrainz_id\r\n    where $__timeFilter(timestamp) and reason_end = 'trackdone' and musicbrainz_genre_id is null\r\n    group by time, metric\r\n    order by time asc, total desc)\r\n  select time, metric, total from metrics where rank <= 5\r\n  union all\r\n  select time, 'Others', sum(total) from metrics where rank > 5\r\n    group by time\r\n    order by time asc;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Top 5 non-genre tags",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "be68m28l3yjuoa"
+      },
+      "description": "By count of completely streamed tracks.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 50,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "log": 2,
+              "type": "log"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "percent"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 117
+      },
+      "id": 24,
+      "maxDataPoints": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "with metrics as\r\n  (select $__timeGroup(timestamp, $__interval) as time,\r\n      name as metric,\r\n      count(*) as total,\r\n      dense_rank() over (partition by $__timeGroup(timestamp, $__interval) order by count(*) desc) as rank\r\n    from spotify_streams ss\r\n    join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n    join musicbrainz_recording_tags mrt on mrt.recording_id = mr.musicbrainz_id\r\n    where $__timeFilter(timestamp) and reason_end = 'trackdone' and musicbrainz_genre_id is not null\r\n    group by time, metric\r\n    order by time asc, total desc)\r\n  select time, metric, total from metrics where rank <= 5\r\n  union all\r\n  select time, 'Others', sum(total) from metrics where rank > 5\r\n    group by time\r\n    order by time asc;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Top 10 genres",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 125
+      },
+      "id": 35,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "be68m28l3yjuoa"
+          },
+          "description": "As a percentage of tracks that have acoustic metadata.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 225
+          },
+          "id": 38,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "pluginVersion": "11.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "select \r\n  count(*) filter (where is_danceable) / count(*)::decimal as danceable,\r\n  count(*) filter (where is_acoustic) / count(*)::decimal as acoustic,\r\n  count(*) filter (where is_aggressive) / count(*)::decimal as aggressive,\r\n  count(*) filter (where is_electronic) / count(*)::decimal as electronic,\r\n  count(*) filter (where is_happy) / count(*)::decimal as happy,\r\n  count(*) filter (where is_party) / count(*)::decimal as party,\r\n  count(*) filter (where is_relaxed) / count(*)::decimal as relaxed,\r\n  count(*) filter (where is_sad) / count(*)::decimal as sad,\r\n  count(*) filter (where is_tonal) / count(*)::decimal as tonal,\r\n  count(*) filter (where is_instrumental) / count(*)::decimal as instrumental\r\nfrom spotify_streams ss\r\n  join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n  join acousticbrainz a on a.recording_id = mr.musicbrainz_id\r\n  where $__timeFilter(timestamp) and reason_end = 'trackdone'",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "Tracks with various acoustic properties",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "be68m28l3yjuoa"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineWidth": 1,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 225
+          },
+          "id": 27,
+          "options": {
+            "barRadius": 0,
+            "barWidth": 0.97,
+            "fullHighlight": false,
+            "groupWidth": 0.7,
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "orientation": "auto",
+            "showValue": "auto",
+            "stacking": "none",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            },
+            "xTickLabelRotation": 0,
+            "xTickLabelSpacing": 100
+          },
+          "pluginVersion": "11.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "select bpm::text, count(*) as \"stream count\", count(distinct track_uri) as \"track count\"\r\nfrom spotify_streams ss\r\n  join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n  join acousticbrainz a on a.recording_id = mr.musicbrainz_id\r\n  where $__timeFilter(timestamp) and reason_end = 'trackdone'\r\n  group by bpm\r\n  order by bpm::integer asc",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "Stream and track counts by BPM",
+          "type": "barchart"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "be68m28l3yjuoa"
+          },
+          "description": "Of complete streams of tracks that have acoustic metadata.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineWidth": 1,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "noValue": "unknown",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 273
+          },
+          "id": 42,
+          "options": {
+            "barRadius": 0,
+            "barWidth": 0.97,
+            "fullHighlight": false,
+            "groupWidth": 0.7,
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "orientation": "auto",
+            "showValue": "auto",
+            "stacking": "none",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            },
+            "xTickLabelRotation": 90,
+            "xTickLabelSpacing": 0
+          },
+          "pluginVersion": "11.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "select key_key || ' ' || key_scale, count(*)\r\n  from spotify_streams ss\r\n  join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n  join acousticbrainz a on a.recording_id = mr.musicbrainz_id\r\n  where $__timeFilter(timestamp) and reason_end = 'trackdone'\r\n  group by key_key, key_scale",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "Key and scale",
+          "type": "barchart"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "be68m28l3yjuoa"
+          },
+          "description": "Of complete streams of tracks that have acoustic metadata.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineWidth": 1,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "noValue": "unknown",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 273
+          },
+          "id": 39,
+          "options": {
+            "barRadius": 0,
+            "barWidth": 0.97,
+            "fullHighlight": false,
+            "groupWidth": 0.7,
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "orientation": "auto",
+            "showValue": "auto",
+            "stacking": "none",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            },
+            "xTickLabelRotation": 0,
+            "xTickLabelSpacing": 0
+          },
+          "pluginVersion": "11.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "select gender, count(*)\r\n  from spotify_streams ss\r\n  join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n  join acousticbrainz a on a.recording_id = mr.musicbrainz_id\r\n  where $__timeFilter(timestamp) and reason_end = 'trackdone'\r\n  group by gender",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "Vocal gender",
+          "type": "barchart"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "be68m28l3yjuoa"
+          },
+          "description": "Of complete streams of tracks that have acoustic metadata.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineWidth": 1,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "noValue": "unknown",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 281
+          },
+          "id": 41,
+          "options": {
+            "barRadius": 0,
+            "barWidth": 0.97,
+            "fullHighlight": false,
+            "groupWidth": 0.7,
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "orientation": "auto",
+            "showValue": "auto",
+            "stacking": "none",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            },
+            "xTickLabelRotation": 90,
+            "xTickLabelSpacing": 0
+          },
+          "pluginVersion": "11.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "select chords_key || ' ' || chords_scale, count(*)\r\n  from spotify_streams ss\r\n  join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n  join acousticbrainz a on a.recording_id = mr.musicbrainz_id\r\n  where $__timeFilter(timestamp) and reason_end = 'trackdone'\r\n  group by chords_key, chords_scale",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "Chord key and scale",
+          "type": "barchart"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "be68m28l3yjuoa"
+          },
+          "description": "Of complete streams of tracks that have acoustic metadata.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineWidth": 1,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "noValue": "unknown",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 281
+          },
+          "id": 40,
+          "options": {
+            "barRadius": 0,
+            "barWidth": 0.97,
+            "fullHighlight": false,
+            "groupWidth": 0.7,
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "orientation": "auto",
+            "showValue": "auto",
+            "stacking": "none",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            },
+            "xTickLabelRotation": 0,
+            "xTickLabelSpacing": 0
+          },
+          "pluginVersion": "11.4.0",
+          "targets": [
+            {
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "select timbre, count(*)\r\n  from spotify_streams ss\r\n  join musicbrainz_recordings mr on mr.spotify_uri = ss.track_uri\r\n  join acousticbrainz a on a.recording_id = mr.musicbrainz_id\r\n  where $__timeFilter(timestamp) and reason_end = 'trackdone'\r\n  group by timbre",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "Timbre",
+          "type": "barchart"
+        }
+      ],
+      "title": "Acoustic Properties",
+      "type": "row"
     }
   ],
   "preload": false,
@@ -1977,6 +3642,6 @@
   "timezone": "browser",
   "title": "Spotify stats",
   "uid": "ae67l4dcx11q8d",
-  "version": 13,
+  "version": 35,
   "weekStart": ""
 }
