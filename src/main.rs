@@ -221,6 +221,13 @@ fn execute_par<'a, T: Sync, O: Clone + Send>(
     thread_results.into_iter().flatten().collect()
 }
 
+fn find_matches_par<'a, 'b>(
+    recordings: &'a [RecordingIsrcArtist],
+    tracks: &'b [SpotifyTrack],
+) -> Vec<(&'b str, &'a Mbid)> {
+    execute_par(recordings, |r| find_matches(r, tracks))
+}
+
 fn process_results<'a, 'b>(
     tracks: &'a [SpotifyTrack],
     matched: &[(&'a str, &'b Mbid)],
@@ -274,7 +281,7 @@ fn main() {
     let recordings = normalise_recordings_par(&recordings);
 
     println!("Normalising tracks...");
-    let tracks = &normalise_tracks(&tracks)[..8100];
+    let tracks = normalise_tracks(&tracks);
     println!("Left with {} tracks", tracks.len());
 
     println!(
@@ -284,7 +291,7 @@ fn main() {
 
     let start = SystemTime::now();
 
-    let match_results = find_matches(&recordings, &tracks);
+    let match_results = find_matches_par(&recordings, &tracks);
 
     println!("Matching took {} ms", start.elapsed().unwrap().as_millis());
 
