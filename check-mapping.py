@@ -4,17 +4,7 @@ import argparse
 from enum import Enum
 import os
 
-from helpers import read_json
-
-def read_spotify_streams_json(dir_path):
-    streams = []
-    for file in os.listdir(dir_path):
-        filename = os.fsdecode(file)
-        if filename.endswith('.json') and '_Audio_' in filename:
-            file_path = os.path.join(dir_path, filename)
-            streams.extend(read_json(file_path))
-
-    return streams
+from helpers import read_json, read_spotify_streaming_history
 
 def increment(target, stream):
     if target == Target.TIME:
@@ -108,7 +98,7 @@ def main():
     parser.add_argument('--acoustid-matches-path')
     args = parser.parse_args()
 
-    spotify_streams = read_spotify_streams_json(args.spotify_streams_path)
+    spotify_streams = read_spotify_streaming_history(args.spotify_streams_path)
     spotify_tracks = read_json(args.spotify_tracks_path)
     musicbrainz_ids = read_json(args.musicbrainz_ids_path)
     musicbrainz_genres = read_json(args.musicbrainz_genres_path)
