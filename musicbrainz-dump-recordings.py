@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3"
+# dependencies = ["psycopg[binary]"]
+# ///
 
 import argparse
 
-from helpers import write_json, connect_to_postgres
+import psycopg
+
+from helpers import write_json
+
+def connect_to_postgres(postgres_host, postgres_port, postgres_sslmode, postgres_db, postgres_user, postgres_password):
+    return psycopg.connect(f"host={postgres_host} port={postgres_port} sslmode={postgres_sslmode} dbname={postgres_db} user={postgres_user} password={postgres_password}")
 
 def get_all_musicbrainz_recordings(postgres_connection):
     with postgres_connection.cursor() as cur:

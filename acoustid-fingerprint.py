@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3"
+# dependencies = ["pyacoustid"]
+# ///
 
 import argparse
 import os
@@ -75,6 +79,7 @@ def main():
             print(f'Failed to calculate AcoustID fingerprint for {file_path}', e)
             output['failed_paths'].append(file_path)
 
+    print(args.output_path)
     write_json(args.output_path, output)
 
 if __name__ == "__main__":

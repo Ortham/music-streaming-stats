@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3"
+# dependencies = ["requests"]
+# ///
 
 import argparse
 from time import sleep

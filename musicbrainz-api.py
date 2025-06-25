@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3"
+# dependencies = ["requests"]
+# ///
 
 import argparse
 from time import sleep
@@ -68,7 +72,7 @@ def main():
             if args.output_path:
                 write_json(args.output_path, isrc_recording_ids)
 
-            genres = get_recording_genres(recording_id)
+            # genres = get_recording_genres(recording_id)
 
 if __name__ == "__main__":
     main()

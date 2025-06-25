@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3"
+# dependencies = ["psycopg[binary]"]
+# ///
 
 import argparse
 from datetime import datetime
 import multiprocessing
 import os
 
-from helpers import read_json, write_json, connect_to_postgres
+import psycopg
+
+from helpers import read_json, write_json
+
+def connect_to_postgres(postgres_host, postgres_port, postgres_sslmode, postgres_db, postgres_user, postgres_password):
+    return psycopg.connect(f"host={postgres_host} port={postgres_port} sslmode={postgres_sslmode} dbname={postgres_db} user={postgres_user} password={postgres_password}")
 
 def get_musicbrainz_recording_ids_by_isrc(postgres_connection, track):
     isrc = track['external_ids']['isrc'].upper() if 'isrc' in track['external_ids'] else None

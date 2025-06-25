@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3"
+# dependencies = ["psycopg[binary]"]
+# ///
 
 import argparse
-from pprint import pp
 
-from helpers import read_json, write_json, connect_to_postgres
+import psycopg
+
+from helpers import read_json, write_json
+
+def connect_to_postgres(postgres_host, postgres_port, postgres_sslmode, postgres_db, postgres_user, postgres_password):
+    return psycopg.connect(f"host={postgres_host} port={postgres_port} sslmode={postgres_sslmode} dbname={postgres_db} user={postgres_user} password={postgres_password}")
 
 def get_recording_tags(postgres_connection, musicbrainz_recording_id):
     # Not all tags are genres that are recognised by MusicBrainz, this includes
