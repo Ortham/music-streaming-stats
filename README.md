@@ -47,15 +47,13 @@ Given the output of `spotify-tracks.py`, checks the uniqueness of ISRCs given wi
 
 Merges two input JSON files into a single output JSON file.
 
-### `mp3tag-compare.py`
+### `local-track-compare.py`
 
-A script that can be used to compare the outputs of `acoustid-match.py` and `mp3tag.py`, and the effect that the differences have on their AcousticBrainz metadata and MusicBrainz tag metadata, using the outputs of `acousticbrainz.py` and `musicbrainz-genres.py`.
+A script that can be used to compare the outputs of `acoustid-match.py` and `local-track-spotify-ids.py`, and the effect that the differences have on their AcousticBrainz metadata and MusicBrainz tag metadata, using the outputs of `acousticbrainz.py` and `musicbrainz-genres.py`.
 
-### `mp3tag.py`
+### `local-track-spotify-ids.py`
 
-Given the output of `spotify-tracks.py`, `musicbrainz-ids.py` (or `spotify-tracks-to-musicbrainz-ids`) and a CSV file containing an export of metadata from [Mp3tag](https://docs.mp3tag.de/export/), writes a JSON file containing an array of Spotify track URIs that match entries in the Mp3tag export by their ISRC or MusicBrainz recording ID.
-
-The `mp3tag-export.mte` file provides an Mp3tag export configuration that writes the expected columns.
+Given the output of `spotify-tracks.py`, `musicbrainz-ids.py` (or `spotify-tracks-to-musicbrainz-ids`) and `extract-metadata.py`, writes a JSON file containing an array of Spotify track URIs that match entries in the extracted metadata by their ISRC or MusicBrainz recording ID.
 
 ### `musicbrainz-api.py`
 

@@ -15,16 +15,13 @@ def parse_input_tsv(file_path):
 
     return tracks
 
-def process_rows(rows, file_path):
+def process_rows(tracks, file_path):
     root_path = os.path.dirname(file_path)
     data_by_relative_path = {}
 
-    for row in rows:
-        if not row['Path']:
-            continue
-
-        row['relative_path'] = os.path.relpath(row['Path'], start=root_path)
-        data_by_relative_path[row['relative_path']] = row
+    for track in tracks:
+        track['relative_path'] = os.path.relpath(track['file_path'], start=root_path)
+        data_by_relative_path[track['relative_path']] = track
 
     return data_by_relative_path
 
@@ -47,7 +44,7 @@ def matches_have_acoustic_metadata(matches, acousticbrainz_metadata):
 
 def main():
     parser = argparse.ArgumentParser(description='Supply the path to a JSON file containing $[*].external_ids.isrc fields.')
-    parser.add_argument('--mp3tag-lookup-export-path')
+    parser.add_argument('--extracted-metadata-path')
     parser.add_argument('--acoustid-matches-path')
     parser.add_argument('--acoustid-matches-base-path')
     parser.add_argument('--musicbrainz-ids-path')
@@ -55,8 +52,8 @@ def main():
     parser.add_argument('--acousticbrainz-path')
     args = parser.parse_args()
 
-    rows = parse_input_tsv(args.mp3tag_lookup_export_path)
-    lookup_data = process_rows(rows, args.mp3tag_lookup_export_path)
+    tracks = read_json(args.extracted_metadata_path)
+    lookup_data = process_rows(tracks, args.extracted_metadata_path)
 
     match_data = read_json(args.acoustid_matches_path)
     matched_relative_paths = {}
@@ -82,7 +79,8 @@ def main():
     mbids_for_unprocessed_files = set()
 
     for lookup_entry in lookup_data.values():
-        mbid = lookup_entry['MBID']
+        tags = {k.upper(): v for k, v in lookup_entry['tags'].items()}
+        mbid = tags.get('MUSICBRAINZ_TRACKID')
         rel_path = lookup_entry['relative_path']
 
         if mbid:

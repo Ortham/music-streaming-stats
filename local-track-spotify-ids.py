@@ -16,7 +16,7 @@ def parse_input_csv(file_path):
 
 def main():
     parser = argparse.ArgumentParser(description='Supply the path to a JSON file containing $[*].external_ids.isrc fields.')
-    parser.add_argument('--mp3tag-export-path')
+    parser.add_argument('--extracted-metadata-path')
     parser.add_argument('--spotify-tracks-metadata-path')
     parser.add_argument('--musicbrainz-ids-path')
     parser.add_argument('--output-path')
@@ -32,34 +32,36 @@ def main():
     print('Tracks', len(tracks_metadata))
     print('Tracks with ISRCs', count)
 
-    mp3tag_mbids_by_isrc = {}
-    mp3tag_mbids = set()
+    extracted_mbids_by_isrc = {}
+    extracted_mbids = set()
 
-    if args.mp3tag_export_path:
-        mp3tag_files_count = 0
-        mp3tag_isrc_count = 0
-        mp3tag_mbid_count = 0
+    if args.extracted_metadata_path:
+        isrc_count = 0
+        mbid_count = 0
 
-        rows = parse_input_csv(args.mp3tag_export_path)
+        tracks = read_json(args.extracted_metadata_path)
 
-        for row in rows:
-            isrc = row['ISRC']
-            mbid = row['MBID']
+        for track in tracks:
+            tags = {k.upper(): v for k, v in track['tags'].items()}
 
-            if row['Path']:
-                mp3tag_files_count += 1
+            isrcs = tags.get('ISRC', [])
+            mbid = tags.get('MUSICBRAINZ_TRACKID')
 
-            if isrc:
-                mp3tag_mbids_by_isrc[isrc.upper()] = mbid
-                mp3tag_isrc_count += 1
+            if isinstance(isrcs, str):
+                isrcs = [isrcs]
+
+            isrc_count += len(isrcs)
+
+            for isrc in isrcs:
+                extracted_mbids_by_isrc[isrc.upper()] = mbid
 
             if mbid:
-                mp3tag_mbids.add(mbid)
-                mp3tag_mbid_count += 1
+                extracted_mbids.add(mbid)
+                mbid_count += 1
 
-        print('Audio files', mp3tag_files_count)
-        print('Audio files with ISRCs', mp3tag_isrc_count)
-        print('Audio files with MBIDs', mp3tag_mbid_count)
+        print('Audio files', len(tracks))
+        print('Audio files with ISRCs', isrc_count)
+        print('Audio files with MBIDs', mbid_count)
 
     mbids_by_spotify_uri = {}
     if args.musicbrainz_ids_path:
@@ -77,30 +79,30 @@ def main():
 
     owned_spotify_track_uris_matched_by_isrc = set()
     owned_spotify_track_uris_matched_by_mbid = set()
-    mp3tag_mbids_by_spotify_uri = {}
+    extracted_mbids_by_spotify_uri = {}
 
     for track in tracks_metadata:
         uri = track['uri']
 
         if 'isrc' in track['external_ids']:
             isrc = track['external_ids']['isrc'].upper()
-            if isrc in mp3tag_mbids_by_isrc:
+            if isrc in extracted_mbids_by_isrc:
                 owned_spotify_track_uris_matched_by_isrc.add(uri)
 
-                mbid = mp3tag_mbids_by_isrc[isrc]
+                mbid = extracted_mbids_by_isrc[isrc]
                 # Is this MBID already matched?
                 if mbid not in existing_uris_by_mbid:
-                    mp3tag_mbids_by_spotify_uri[uri] = [mbid]
+                    extracted_mbids_by_spotify_uri[uri] = [mbid]
 
         if uri in mbids_by_spotify_uri:
             for mbid in mbids_by_spotify_uri[uri]:
-                if mbid in mp3tag_mbids:
+                if mbid in extracted_mbids:
                     owned_spotify_track_uris_matched_by_mbid.add(uri)
 
     print(f'Matched {len(owned_spotify_track_uris_matched_by_isrc)} Spotify tracks with owned tracks using ISRCs')
     print(f'Matched {len(owned_spotify_track_uris_matched_by_mbid)} Spotify tracks with owned tracks using MBIDs')
     print(f'Matched {len(owned_spotify_track_uris_matched_by_isrc | owned_spotify_track_uris_matched_by_mbid)} unique Spotify tracks with owned tracks in total')
-    print(f'Found {len(mp3tag_mbids_by_spotify_uri)} track to MBID mappings (via ISRCs) that were not already known')
+    print(f'Found {len(extracted_mbids_by_spotify_uri)} track to MBID mappings (via ISRCs) that were not already known')
 
     output = list(owned_spotify_track_uris_matched_by_isrc | owned_spotify_track_uris_matched_by_mbid)
 

@@ -1,3 +1,0 @@
-$filename(csv,utf-8)Title	Artist	Album	MBID	ISRC	ACOUSTID	Path
-$loop(%_filename_ext%)%title%	%artist%	%album%	%MUSICBRAINZ_TRACKID%	%ISRC%	%ACOUSTID_ID%	%_path%
-$loopend()build on %_date% with %_app%
