@@ -7,7 +7,7 @@ use std::{
     time::SystemTime,
 };
 
-use clap::{arg, Parser};
+use clap::Parser;
 use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Parser, Debug)]
